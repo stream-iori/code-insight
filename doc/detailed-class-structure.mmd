@@ -1,0 +1,224 @@
+---
+title: Detailed Type Relationships & Data Flow
+---
+
+classDiagram
+    direction LR
+    
+    %% Core Data Types
+    class JavaFile {
+        +PathBuf file_path
+        +String package_name
+        +String source_code
+        +Vec~Declaration~ declarations
+        +Vec~Dependency~ dependencies
+        +DateTime last_modified
+        +String checksum
+    }
+    
+    class Declaration {
+        <<abstract>>
+        +String name
+        +DeclarationKind kind
+        +Range line_range
+        +Vec~Modifier~ modifiers
+        +Vec~Annotation~ annotations
+        +String documentation
+    }
+    
+    class ClassDeclaration {
+        +String superclass
+        +Vec~String~ interfaces
+        +Vec~FieldDeclaration~ fields
+        +Vec~MethodDeclaration~ methods
+        +Vec~ConstructorDeclaration~ constructors
+    }
+    
+    class MethodDeclaration {
+        +String return_type
+        +Vec~Parameter~ parameters
+        +String body
+        +AccessLevel access_level
+        +bool is_static
+        +bool is_abstract
+    }
+    
+    class FieldDeclaration {
+        +String type_name
+        +String initial_value
+        +bool is_final
+        +bool is_static
+        +AccessLevel access_level
+    }
+    
+    class Annotation {
+        +String name
+        +Vec~AnnotationValue~ values
+        +Range location
+    }
+    
+    %% Maven Types
+    class MavenModule {
+        +String group_id
+        +String artifact_id
+        +String version
+        +PathBuf module_root
+        +Vec~Dependency~ dependencies
+        +Vec~String~ modules
+        +HashMap~String, String~ properties
+        +BuildConfig build_config
+    }
+    
+    class Dependency {
+        +String group_id
+        +String artifact_id
+        +String version
+        +String scope
+        +bool optional
+        +Vec~Exclusion~ exclusions
+        +DependencyType type
+    }
+    
+    %% Search System
+    class SearchIndex {
+        +Index index
+        +IndexWriter writer
+        +IndexReader reader
+        +Schema schema
+        +add_document(doc: Document)
+        +search(query: Query) Vec~SearchResult~
+    }
+    
+    class TantivyDocument {
+        +add_text(field: Field, value: &str)
+        +add_u64(field: Field, value: u64)
+        +add_facet(field: Field, value: &str)
+    }
+    
+    %% Parser Architecture
+    class ParserPipeline {
+        +Vec~ParserStage~ stages
+        +execute(input: ParseInput) ParseResult
+        +validate_syntax(result: ParseResult) bool
+    }
+    
+    class ParserStage {
+        <<trait>>
+        +name() String
+        +process(input: &ParseInput) Result~ParseStageOutput~
+    }
+    
+    class JavaParserStage {
+        +tree_sitter::Parser
+        +grammar: tree_sitter::Language
+        +parse(source: &str) Tree
+    }
+    
+    class MavenParserStage {
+        +xml_reader: quick_xml::Reader
+        +parse_pom(xml: &str) Result~MavenModule~
+    }
+    
+    %% Relationships with Multiplicity
+    JavaFile "1" *-- "*" Declaration : contains
+    JavaFile "*" -- "1" MavenModule : belongs_to
+    
+    Declaration <|-- ClassDeclaration : is_a
+    Declaration <|-- MethodDeclaration : is_a
+    Declaration <|-- FieldDeclaration : is_a
+    
+    ClassDeclaration "1" *-- "*" MethodDeclaration : has_methods
+    ClassDeclaration "1" *-- "*" FieldDeclaration : has_fields
+    ClassDeclaration "1" *-- "*" Annotation : annotated_with
+    
+    MavenModule "1" *-- "*" Dependency : depends_on
+    MavenModule "1" *-- "*" JavaFile : contains
+    
+    %% Data Flow
+    class DataFlow {
+        <<note>>
+        1. File Discovery → JavaFile
+        2. Parse → AST → Declarations
+        3. Index → TantivyDocument → SearchIndex
+        4. Query → Search → Results
+        5. Graph → Visualization
+    }
+    
+    %% Type Enums
+    class DeclarationKind {
+        <<enumeration>>
+        Class
+        Interface
+        Enum
+        Record
+        Annotation
+        Method
+        Field
+        Constructor
+    }
+    
+    class AccessLevel {
+        <<enumeration>>
+        Public
+        Private
+        Protected
+        Package
+    }
+    
+    class DependencyType {
+        <<enumeration>>
+        Compile
+        Runtime
+        Test
+        Provided
+        System
+    }
+    
+    %% Complex Relationships
+    class TypeHierarchy {
+        +String base_type
+        +Vec~String~ super_types
+        +Vec~String~ sub_types
+        +is_subtype_of(other: &str) bool
+    }
+    
+    class ReferenceGraph {
+        +Vec~Node~ nodes
+        +Vec~Edge~ edges
+        +add_reference(from: Node, to: Node)
+        +find_cycles() Vec~Cycle~
+    }
+    
+    JavaFile "*" -- "1" TypeHierarchy : has_hierarchy
+    JavaFile "*" -- "1" ReferenceGraph : referenced_in
+    
+    %% Notes on Data Flow
+    note for JavaFile "Primary data structure
+    containing parsed Java source
+    
+    Fields:
+    - file_path: absolute path
+    - package_name: Java package
+    - declarations: all found declarations
+    - dependencies: external dependencies"
+    
+    note for ParserPipeline "Multi-stage parsing process
+    1. File discovery
+    2. Syntax parsing
+    3. Declaration extraction
+    4. Validation
+    5. Indexing preparation"
+    
+    note for SearchIndex "Tantivy-based full-text search
+    
+    Indexed fields:
+    - declaration names
+    - documentation
+    - source code snippets
+    - package names"
+    
+    note for ReferenceGraph "Builds relationships between:
+    - Class inheritance
+    - Method calls
+    - Field usage
+    - Interface implementations"

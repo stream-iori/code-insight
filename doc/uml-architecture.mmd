@@ -1,0 +1,197 @@
+---
+title: Code-Insight Architecture - Types & Traits
+---
+
+classDiagram
+    direction TB
+    
+    %% Core Types
+    class JavaFile {
+        +Path: file_path
+        +String: package_name
+        +String: source_code
+        +Vec~Declaration~: declarations
+        +Vec~Dependency~: dependencies
+    }
+    
+    class Declaration {
+        <<enumeration>>
+        Class
+        Interface
+        Enum
+        Method
+        Field
+        Annotation
+    }
+    
+    class MavenModule {
+        +String: group_id
+        +String: artifact_id
+        +String: version
+        +Path: module_root
+        +Vec~Dependency~: dependencies
+        +Vec~MavenModule~: sub_modules
+    }
+    
+    class Dependency {
+        +String: group_id
+        +String: artifact_id
+        +String: version
+        +String: scope
+        +bool: is_transitive
+    }
+    
+    class SearchQuery {
+        +String: query
+        +SearchKind: kind
+        +Option~DeclarationKind~: filter_kind
+        +Option~String~: file_pattern
+    }
+    
+    class SearchResult {
+        +String: name
+        +DeclarationKind: kind
+        +Path: file_path
+        +usize: line_number
+        +f32: score
+        +String: content_preview
+    }
+    
+    %% Parser Traits and Types
+    class FileParser {
+        <<trait>>
+        +parse_java(file: &Path) Result~JavaFile~
+        +parse_xml(file: &Path) Result~XmlConfig~
+        +parse_properties(file: &Path) Result~Properties~
+    }
+    
+    class JavaParser {
+        +tree_sitter::Parser
+        +parse_ast(source: &str) Result~Tree~
+        +extract_declarations(tree: &Tree) Vec~Declaration~
+    }
+    
+    class MavenParser {
+        +parse_pom(file: &Path) Result~MavenModule~
+        +resolve_dependencies(module: &MavenModule) Vec~Dependency~
+    }
+    
+    %% Indexer Traits and Types
+    class IndexManager {
+        +Tantivy::Index
+        +create_index(path: &Path) Result~()
+        +add_document(doc: &JavaFile) Result~()
+        +commit() Result~()
+    }
+    
+    class DocumentSchema {
+        +Schema: declaration_schema
+        +Schema: dependency_schema
+        +Schema: file_schema
+    }
+    
+    %% Query Engine Traits
+    class QueryEngine {
+        <<trait>>
+        +search(query: &SearchQuery) Result~Vec~SearchResult~~
+        +fuzzy_search(query: &str) Result~Vec~SearchResult~~
+        +exact_search(query: &str) Result~Vec~SearchResult~~
+        +regex_search(pattern: &str) Result~Vec~SearchResult~~
+    }
+    
+    class SearchIndex {
+        +IndexReader: reader
+        +IndexSearcher: searcher
+        +QueryParser: parser
+    }
+    
+    %% Graph Visualization
+    class GraphBuilder {
+        +build_dependency_graph(modules: &[MavenModule]) Graph
+        +build_reference_graph(files: &[JavaFile]) Graph
+        +find_cycles(graph: &Graph) Vec~Cycle~
+    }
+    
+    class GraphVisualizer {
+        +to_mermaid(graph: &Graph) String
+        +to_dot(graph: &Graph) String
+        +generate_styling(config: &VisualizationConfig) String
+    }
+    
+    class VisualizationConfig {
+        +String: theme
+        +bool: show_dependencies
+        +bool: show_inheritance
+        +bool: show_composition
+    }
+    
+    %% LLM Export Traits
+    class LlmExporter {
+        <<trait>>
+        +export_json(data: &[JavaFile]) Result~String~
+        +export_jsonl(data: &[JavaFile]) Result~String~
+        +export_markdown(data: &[JavaFile]) Result~String~
+        +export_rag_format(data: &[JavaFile]) Result~String~
+    }
+    
+    class ExportFormat {
+        <<enumeration>>
+        Json
+        Jsonl
+        Markdown
+        LlamaIndex
+        Rag
+    }
+    
+    %% Async Processing
+    class AsyncProcessor {
+        +tokio::runtime::Runtime
+        +process_files_parallel(files: &[Path]) Result~Vec~JavaFile~~
+        +with_progress(files: &[Path]) Result~Vec~JavaFile~~
+    }
+    
+    class ProcessingConfig {
+        +usize: max_concurrent_files
+        +Duration: timeout
+        +bool: enable_progress
+    }
+    
+    %% Relationships
+    JavaFile "1" *-- "*" Declaration : contains
+    JavaFile "*" -- "1" MavenModule : belongs to
+    MavenModule "1" *-- "*" Dependency : has
+    MavenModule "1" *-- "*" MavenModule : sub_modules
+    
+    SearchQuery ..> SearchResult : produces
+    QueryEngine ..> SearchIndex : uses
+    QueryEngine ..> SearchQuery : processes
+    
+    FileParser <|-- JavaParser : implements
+    FileParser <|-- MavenParser : implements
+    
+    IndexManager ..> DocumentSchema : uses
+    IndexManager ..> JavaFile : indexes
+    
+    GraphBuilder ..> MavenModule : analyzes
+    GraphBuilder ..> JavaFile : analyzes
+    GraphVisualizer ..> GraphBuilder : uses
+    
+    LlmExporter ..> JavaFile : exports
+    LlmExporter ..> ExportFormat : supports
+    
+    AsyncProcessor ..> FileParser : uses
+    AsyncProcessor ..> ProcessingConfig : configured by
+    
+    %% Notes
+    note for JavaFile "Core data structure representing
+    a parsed Java source file with all
+    declarations and metadata"
+    
+    note for MavenModule "Represents a Maven module
+    with dependencies and sub-modules"
+    
+    note for QueryEngine "Provides search functionality
+    across indexed Java files"
+    
+    note for GraphBuilder "Builds dependency and
+    reference graphs for visualization"
