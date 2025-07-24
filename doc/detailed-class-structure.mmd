@@ -1,150 +1,144 @@
 ---
-title: Detailed Type Relationships & Data Flow
+title: Detailed Type Relationships & Data Flow - Accurate Representation
+description: UML class diagram matching exact Rust types from src/types.rs
 ---
 
 classDiagram
     direction LR
     
-    %% Core Data Types
-    class JavaFile {
-        +PathBuf file_path
-        +String package_name
-        +String source_code
-        +Vec~Declaration~ declarations
-        +Vec~Dependency~ dependencies
-        +DateTime last_modified
-        +String checksum
-    }
-    
-    class Declaration {
-        <<abstract>>
-        +String name
-        +DeclarationKind kind
-        +Range line_range
-        +Vec~Modifier~ modifiers
-        +Vec~Annotation~ annotations
-        +String documentation
-    }
-    
-    class ClassDeclaration {
-        +String superclass
-        +Vec~String~ interfaces
-        +Vec~FieldDeclaration~ fields
-        +Vec~MethodDeclaration~ methods
-        +Vec~ConstructorDeclaration~ constructors
-    }
-    
-    class MethodDeclaration {
-        +String return_type
-        +Vec~Parameter~ parameters
-        +String body
-        +AccessLevel access_level
-        +bool is_static
-        +bool is_abstract
-    }
-    
-    class FieldDeclaration {
-        +String type_name
-        +String initial_value
-        +bool is_final
-        +bool is_static
-        +AccessLevel access_level
-    }
-    
-    class Annotation {
-        +String name
-        +Vec~AnnotationValue~ values
-        +Range location
-    }
-    
-    %% Maven Types
+    %% Core Data Types from types.rs
     class MavenModule {
         +String group_id
         +String artifact_id
         +String version
-        +PathBuf module_root
-        +Vec~Dependency~ dependencies
-        +Vec~String~ modules
-        +HashMap~String, String~ properties
-        +BuildConfig build_config
+        +Option~String~ packaging
+        +PathBuf path
+        +Vec~MavenDependency~ dependencies
+        +Vec~String~ submodules
     }
     
-    class Dependency {
+    class MavenDependency {
         +String group_id
         +String artifact_id
         +String version
-        +String scope
+        +Option~String~ scope
         +bool optional
-        +Vec~Exclusion~ exclusions
-        +DependencyType type
     }
     
-    %% Search System
-    class SearchIndex {
-        +Index index
-        +IndexWriter writer
-        +IndexReader reader
-        +Schema schema
-        +add_document(doc: Document)
-        +search(query: Query) Vec~SearchResult~
+    class JavaFile {
+        +PathBuf path
+        +Option~String~ module
+        +String package
+        +Vec~String~ imports
+        +Vec~Declaration~ declarations
+        +String source_hash
     }
     
-    class TantivyDocument {
-        +add_text(field: Field, value: &str)
-        +add_u64(field: Field, value: u64)
-        +add_facet(field: Field, value: &str)
+    class Declaration {
+        +String name
+        +DeclarationKind kind
+        +Vec~String~ modifiers
+        +Vec~Annotation~ annotations
+        +String signature
+        +Option~String~ extends
+        +Vec~String~ implements
+        +Vec~Field~ fields
+        +Vec~Method~ methods
+        +SourceRange range
+        +Option~String~ documentation
     }
     
-    %% Parser Architecture
-    class ParserPipeline {
-        +Vec~ParserStage~ stages
-        +execute(input: ParseInput) ParseResult
-        +validate_syntax(result: ParseResult) bool
+    class Field {
+        +String name
+        +String type_name
+        +Vec~String~ modifiers
+        +Vec~Annotation~ annotations
+        +SourceRange range
     }
     
-    class ParserStage {
-        <<trait>>
-        +name() String
-        +process(input: &ParseInput) Result~ParseStageOutput~
+    class Method {
+        +String name
+        +String return_type
+        +Vec~Parameter~ parameters
+        +Vec~String~ modifiers
+        +Vec~Annotation~ annotations
+        +SourceRange range
+        +Option~SourceRange~ body_range
     }
     
-    class JavaParserStage {
-        +tree_sitter::Parser
-        +grammar: tree_sitter::Language
-        +parse(source: &str) Tree
+    class Parameter {
+        +String name
+        +String type_name
+        +Vec~Annotation~ annotations
     }
     
-    class MavenParserStage {
-        +xml_reader: quick_xml::Reader
-        +parse_pom(xml: &str) Result~MavenModule~
+    class Annotation {
+        +String name
+        +Vec~String~ values
     }
     
-    %% Relationships with Multiplicity
-    JavaFile "1" *-- "*" Declaration : contains
-    JavaFile "*" -- "1" MavenModule : belongs_to
-    
-    Declaration <|-- ClassDeclaration : is_a
-    Declaration <|-- MethodDeclaration : is_a
-    Declaration <|-- FieldDeclaration : is_a
-    
-    ClassDeclaration "1" *-- "*" MethodDeclaration : has_methods
-    ClassDeclaration "1" *-- "*" FieldDeclaration : has_fields
-    ClassDeclaration "1" *-- "*" Annotation : annotated_with
-    
-    MavenModule "1" *-- "*" Dependency : depends_on
-    MavenModule "1" *-- "*" JavaFile : contains
-    
-    %% Data Flow
-    class DataFlow {
-        <<note>>
-        1. File Discovery → JavaFile
-        2. Parse → AST → Declarations
-        3. Index → TantivyDocument → SearchIndex
-        4. Query → Search → Results
-        5. Graph → Visualization
+    class SourceRange {
+        +usize start_line
+        +usize start_column
+        +usize end_line
+        +usize end_column
     }
     
-    %% Type Enums
+    class XmlFile {
+        +PathBuf path
+        +String root_element
+        +String content
+    }
+    
+    class PropertiesFile {
+        +PathBuf path
+        +Vec~String~ keys
+        +Vec~String~ values
+    }
+    
+    class SearchQuery {
+        +String query
+        +SearchKind kind
+        +Vec~SearchFilter~ filters
+        +Option~usize~ limit
+    }
+    
+    class SearchResult {
+        +Declaration declaration
+        +PathBuf file_path
+        +f32 score
+        +String preview
+    }
+    
+    class LlmExport {
+        +String name
+        +String kind
+        +String signature
+        +Option~String~ documentation
+        +String code
+        +String file_path
+        +(usize, usize) line_range
+    }
+    
+    class ReferenceGraph {
+        +Vec~GraphNode~ nodes
+        +Vec~GraphEdge~ edges
+    }
+    
+    class GraphNode {
+        +String id
+        +String label
+        +DeclarationKind kind
+        +PathBuf file_path
+    }
+    
+    class GraphEdge {
+        +String from
+        +String to
+        +RelationshipType relationship
+    }
+    
+    %% Enums from types.rs
     class DeclarationKind {
         <<enumeration>>
         Class
@@ -152,73 +146,70 @@ classDiagram
         Enum
         Record
         Annotation
-        Method
-        Field
-        Constructor
     }
     
-    class AccessLevel {
+    class SearchKind {
         <<enumeration>>
-        Public
-        Private
-        Protected
-        Package
+        Exact
+        Fuzzy
+        Regex
     }
     
-    class DependencyType {
+    class SearchFilter {
         <<enumeration>>
-        Compile
-        Runtime
-        Test
-        Provided
-        System
+        Kind(DeclarationKind)
+        Annotation(String)
+        Package(String)
+        Module(String)
     }
     
-    %% Complex Relationships
-    class TypeHierarchy {
-        +String base_type
-        +Vec~String~ super_types
-        +Vec~String~ sub_types
-        +is_subtype_of(other: &str) bool
+    class RelationshipType {
+        <<enumeration>>
+        Extends
+        Implements
+        Uses
+        References
+        DependsOn
     }
     
-    class ReferenceGraph {
-        +Vec~Node~ nodes
-        +Vec~Edge~ edges
-        +add_reference(from: Node, to: Node)
-        +find_cycles() Vec~Cycle~
-    }
+    %% Relationships with exact multiplicities
+    MavenModule "1" *-- "*" MavenDependency : contains
+    MavenModule "1" *-- "*" JavaFile : contains
     
-    JavaFile "*" -- "1" TypeHierarchy : has_hierarchy
-    JavaFile "*" -- "1" ReferenceGraph : referenced_in
+    JavaFile "1" *-- "*" Declaration : contains
     
-    %% Notes on Data Flow
-    note for JavaFile "Primary data structure
-    containing parsed Java source
+    Declaration "1" *-- "*" Field : has
+    Declaration "1" *-- "*" Method : has
+    Declaration "1" *-- "*" Annotation : annotated_with
     
-    Fields:
-    - file_path: absolute path
-    - package_name: Java package
-    - declarations: all found declarations
-    - dependencies: external dependencies"
+    Method "1" *-- "*" Parameter : has
     
-    note for ParserPipeline "Multi-stage parsing process
-    1. File discovery
-    2. Syntax parsing
-    3. Declaration extraction
-    4. Validation
-    5. Indexing preparation"
+    Annotation "1" *-- "*" String : has_values
     
-    note for SearchIndex "Tantivy-based full-text search
+    %% Search System Relationships
+    SearchQuery "1" *-- "*" SearchFilter : filters_by
+    SearchQuery "1" --> "*" SearchResult : produces
+    SearchResult --> Declaration : contains
     
-    Indexed fields:
-    - declaration names
-    - documentation
-    - source code snippets
-    - package names"
+    %% Graph Relationships
+    ReferenceGraph "1" *-- "*" GraphNode : has
+    ReferenceGraph "1" *-- "*" GraphEdge : has
+    GraphNode --> DeclarationKind : typed_as
     
-    note for ReferenceGraph "Builds relationships between:
-    - Class inheritance
-    - Method calls
-    - Field usage
-    - Interface implementations"
+    %% Export Relationships
+    LlmExport --> Declaration : derived_from
+    
+    %% Additional file types
+    MavenModule "*" -- "*" XmlFile : may_have
+    MavenModule "*" -- "*" PropertiesFile : may_have
+    
+    %% Notes with accurate field descriptions
+    note for MavenModule "Maven project definition from pom.xml\n\nKey fields:\n- group_id: company/org identifier\n- artifact_id: project name\n- version: semantic version\n- packaging: jar/war/pom (optional)\n- path: absolute file system path\n- dependencies: external libraries\n- submodules: child modules"
+    
+    note for JavaFile "Parsed Java source file\n\nKey fields:\n- path: absolute .java file path\n- module: parent Maven module\n- package: Java package declaration\n- imports: fully qualified imports\n- declarations: classes/interfaces/enums\n- source_hash: SHA-256 of source"
+    
+    note for Declaration "Java type declaration\n\nCan represent:\n- Classes (public class X)\n- Interfaces (public interface Y)\n- Enums (public enum Z)\n- Records (public record R)\n- Annotations (@interface A)\n\nContains fields, methods, and annotations"
+    
+    note for SearchQuery "Search configuration\n\nParameters:\n- query: search string\n- kind: exact/fuzzy/regex\n- filters: type/annotation/package/module\n- limit: max results (optional)"
+    
+    note for ReferenceGraph "Class relationship graph\n\nBuilds connections:\n- Extends: inheritance\n- Implements: interface realization\n- Uses: method calls\n- References: field usage\n- DependsOn: compilation dependencies"
