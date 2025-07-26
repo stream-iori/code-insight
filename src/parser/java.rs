@@ -7,6 +7,184 @@ use crate::types::{
     Annotation, Declaration, DeclarationKind, Field, JavaFile, Method, Parameter, SourceRange,
 };
 
+/// Categorized enum for tree-sitter Java node kinds
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JavaNodeKind {
+    // Declaration types
+    ModuleDeclaration,
+    PackageDeclaration,
+    ImportDeclaration,
+    ClassDeclaration,
+    InterfaceDeclaration,
+    EnumDeclaration,
+    RecordDeclaration,
+    AnnotationTypeDeclaration,
+    FieldDeclaration,
+    MethodDeclaration,
+    ConstructorDeclaration,
+    
+    // Modifiers and annotations
+    Modifier,
+    Annotation,
+    
+    // Identifiers and references
+    Identifier,
+    ScopedIdentifier,
+    Asterisk,
+    
+    // Type-related
+    TypeIdentifier,
+    IntegralType,
+    FloatingPointType,
+    BooleanType,
+    VoidType,
+    GenericType,
+    ArrayType,
+    
+    // Parameters and variables
+    FormalParameters,
+    FormalParameter,
+    VariableDeclarator,
+    
+    // Inheritance
+    Superclass,
+    SuperInterfaces,
+    
+    // Literals and values
+    StringLiteral,
+    NumberLiteral,
+    True,
+    False,
+    
+    // Comments and documentation
+    Comment,
+    
+    // Annotation elements
+    ElementValuePair,
+    
+    // Access modifiers
+    Public,
+    Private,
+    Protected,
+    Static,
+    Final,
+    Abstract,
+    Synchronized,
+    Volatile,
+    Transient,
+    Native,
+    Strictfp,
+    
+    Unknown,
+}
+
+impl JavaNodeKind {
+    fn from_str(kind: &str) -> Self {
+        match kind {
+            "module_declaration" => JavaNodeKind::ModuleDeclaration,
+            "package_declaration" => JavaNodeKind::PackageDeclaration,
+            "import_declaration" => JavaNodeKind::ImportDeclaration,
+            "class_declaration" => JavaNodeKind::ClassDeclaration,
+            "interface_declaration" => JavaNodeKind::InterfaceDeclaration,
+            "enum_declaration" => JavaNodeKind::EnumDeclaration,
+            "record_declaration" => JavaNodeKind::RecordDeclaration,
+            "annotation_type_declaration" => JavaNodeKind::AnnotationTypeDeclaration,
+            "field_declaration" => JavaNodeKind::FieldDeclaration,
+            "method_declaration" => JavaNodeKind::MethodDeclaration,
+            "constructor_declaration" => JavaNodeKind::ConstructorDeclaration,
+            "annotation" => JavaNodeKind::Annotation,
+            "modifier" => JavaNodeKind::Modifier,
+            "identifier" => JavaNodeKind::Identifier,
+            "scoped_identifier" => JavaNodeKind::ScopedIdentifier,
+            "asterisk" => JavaNodeKind::Asterisk,
+            "superclass" => JavaNodeKind::Superclass,
+            "super_interfaces" => JavaNodeKind::SuperInterfaces,
+            "type_identifier" => JavaNodeKind::TypeIdentifier,
+            "integral_type" => JavaNodeKind::IntegralType,
+            "floating_point_type" => JavaNodeKind::FloatingPointType,
+            "boolean_type" => JavaNodeKind::BooleanType,
+            "void_type" => JavaNodeKind::VoidType,
+            "generic_type" => JavaNodeKind::GenericType,
+            "array_type" => JavaNodeKind::ArrayType,
+            "formal_parameters" => JavaNodeKind::FormalParameters,
+            "formal_parameter" => JavaNodeKind::FormalParameter,
+            "variable_declarator" => JavaNodeKind::VariableDeclarator,
+            "comment" => JavaNodeKind::Comment,
+            "string_literal" => JavaNodeKind::StringLiteral,
+            "number_literal" => JavaNodeKind::NumberLiteral,
+            "true" => JavaNodeKind::True,
+            "false" => JavaNodeKind::False,
+            "public" => JavaNodeKind::Public,
+            "private" => JavaNodeKind::Private,
+            "protected" => JavaNodeKind::Protected,
+            "static" => JavaNodeKind::Static,
+            "final" => JavaNodeKind::Final,
+            "abstract" => JavaNodeKind::Abstract,
+            "synchronized" => JavaNodeKind::Synchronized,
+            "volatile" => JavaNodeKind::Volatile,
+            "transient" => JavaNodeKind::Transient,
+            "native" => JavaNodeKind::Native,
+            "strictfp" => JavaNodeKind::Strictfp,
+            "element_value_pair" => JavaNodeKind::ElementValuePair,
+            _ => JavaNodeKind::Unknown,
+        }
+    }
+
+    // Category methods for better organization
+    pub fn is_declaration(self) -> bool {
+        matches!(
+            self,
+            JavaNodeKind::ClassDeclaration
+                | JavaNodeKind::InterfaceDeclaration
+                | JavaNodeKind::EnumDeclaration
+                | JavaNodeKind::RecordDeclaration
+                | JavaNodeKind::AnnotationTypeDeclaration
+        )
+    }
+
+    pub fn is_modifier(self) -> bool {
+        matches!(
+            self,
+            JavaNodeKind::Modifier
+                | JavaNodeKind::Public
+                | JavaNodeKind::Private
+                | JavaNodeKind::Protected
+                | JavaNodeKind::Static
+                | JavaNodeKind::Final
+                | JavaNodeKind::Abstract
+                | JavaNodeKind::Synchronized
+                | JavaNodeKind::Volatile
+                | JavaNodeKind::Transient
+                | JavaNodeKind::Native
+                | JavaNodeKind::Strictfp
+        )
+    }
+
+    pub fn is_type(self) -> bool {
+        matches!(
+            self,
+            JavaNodeKind::TypeIdentifier
+                | JavaNodeKind::IntegralType
+                | JavaNodeKind::FloatingPointType
+                | JavaNodeKind::BooleanType
+                | JavaNodeKind::VoidType
+                | JavaNodeKind::GenericType
+                | JavaNodeKind::ArrayType
+        )
+    }
+
+    pub fn to_declaration_kind(self) -> Option<DeclarationKind> {
+        match self {
+            JavaNodeKind::ClassDeclaration => Some(DeclarationKind::Class),
+            JavaNodeKind::InterfaceDeclaration => Some(DeclarationKind::Interface),
+            JavaNodeKind::EnumDeclaration => Some(DeclarationKind::Enum),
+            JavaNodeKind::RecordDeclaration => Some(DeclarationKind::Record),
+            JavaNodeKind::AnnotationTypeDeclaration => Some(DeclarationKind::Annotation),
+            _ => None,
+        }
+    }
+}
+
 pub struct JavaParser {
     //tree-sitter的parser
     parser: Parser,
@@ -24,20 +202,27 @@ impl JavaParser {
     }
 
     pub fn parse_file(&mut self, path: &Path) -> Result<JavaFile> {
+        /*
+         * !<learning>
+         * 读取指定的java source
+         * anyhow 针对result提供了with_context
+         */
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read Java file: {:?}", path))?;
 
+        /* !<learning> anyhow 针对option 提供了 context */
         let tree = self
             .parser
             .parse(&source, None)
             .context("Failed to parse Java file")?;
 
+        //构建 Java File 对象
         let mut java_file = JavaFile {
             path: path.to_path_buf(),
-            module: None,
+            module: None, //暂时用不到,目前没有使用
             package: String::new(),
             imports: Vec::new(),
-            declarations: Vec::new(),
+            declarations: Vec::new(), //如果有属性的话
             source_hash: format!("{:x}", md5::compute(&source)),
         };
 
@@ -51,23 +236,20 @@ impl JavaParser {
         let mut cursor = node.walk();
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "module_declaration" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::ModuleDeclaration => {
                     java_file.module = Some(self.get_node_text(&child, source)?);
                 }
-                "package_declaration" => {
+                JavaNodeKind::PackageDeclaration => {
                     java_file.package = self.get_package_name(&child, source)?;
                 }
-                "import_declaration" => {
+                JavaNodeKind::ImportDeclaration => {
                     if let Some(import) = self.get_import_name(&child, source)? {
                         java_file.imports.push(import);
                     }
                 }
-                "class_declaration"
-                | "interface_declaration"
-                | "enum_declaration"
-                | "record_declaration"
-                | "annotation_type_declaration" => {
+                kind if kind.is_declaration() => {
                     if let Some(declaration) = self.parse_declaration(&child, source)? {
                         java_file.declarations.push(declaration);
                     }
@@ -80,13 +262,10 @@ impl JavaParser {
     }
 
     fn parse_declaration(&self, node: &Node, source: &str) -> Result<Option<Declaration>> {
-        let kind = match node.kind() {
-            "class_declaration" => DeclarationKind::Class,
-            "interface_declaration" => DeclarationKind::Interface,
-            "enum_declaration" => DeclarationKind::Enum,
-            "record_declaration" => DeclarationKind::Record,
-            "annotation_type_declaration" => DeclarationKind::Annotation,
-            _ => return Ok(None),
+        let node_kind = JavaNodeKind::from_str(node.kind());
+        let kind = match node_kind.to_declaration_kind() {
+            Some(k) => k,
+            None => return Ok(None),
         };
 
         let name = self.get_declaration_name(node, source)?;
@@ -118,7 +297,8 @@ impl JavaParser {
 
     fn get_declaration_name(&self, node: &Node, source: &str) -> Result<String> {
         for child in node.children(&mut node.walk()) {
-            if child.kind() == "identifier" {
+            let kind = JavaNodeKind::from_str(child.kind());
+            if kind == JavaNodeKind::Identifier {
                 return self.get_node_text(&child, source);
             }
         }
@@ -129,8 +309,8 @@ impl JavaParser {
         let mut modifiers = Vec::new();
 
         for child in node.children(&mut node.walk()) {
-            let kind = child.kind();
-            if kind.ends_with("_modifier") || kind == "public" || kind == "private" || kind == "protected" || kind == "static" || kind == "final" {
+            let kind = JavaNodeKind::from_str(child.kind());
+            if kind.is_modifier() {
                 if let Ok(text) = self.get_node_text(&child, source) {
                     modifiers.push(text);
                 }
@@ -144,7 +324,8 @@ impl JavaParser {
         let mut annotations = Vec::new();
 
         for child in node.children(&mut node.walk()) {
-            if child.kind() == "annotation" {
+            let kind = JavaNodeKind::from_str(child.kind());
+            if kind == JavaNodeKind::Annotation {
                 if let Some(annotation) = self.parse_annotation(&child, source)? {
                     annotations.push(annotation);
                 }
@@ -160,13 +341,14 @@ impl JavaParser {
         let mut values = Vec::new();
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "identifier" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Identifier => {
                     if name.is_none() {
                         name = Some(self.get_node_text(&child, source)?);
                     }
                 }
-                "element_value_pair" => {
+                JavaNodeKind::ElementValuePair => {
                     if let Some((key, value)) = self.parse_annotation_value(&child, source)? {
                         values.push((key, value));
                     }
@@ -188,13 +370,17 @@ impl JavaParser {
         let mut value = None;
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "identifier" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Identifier => {
                     if key.is_none() {
                         key = Some(self.get_node_text(&child, source)?);
                     }
                 }
-                "string_literal" | "number_literal" | "true" | "false" => {
+                JavaNodeKind::StringLiteral
+                | JavaNodeKind::NumberLiteral
+                | JavaNodeKind::True
+                | JavaNodeKind::False => {
                     value = Some(self.get_node_text(&child, source)?);
                 }
                 _ => {}
@@ -217,15 +403,17 @@ impl JavaParser {
         let mut implements = Vec::new();
 
         for child in node.children(&mut node.walk()) {
-            match child.kind() {
-                "superclass" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Superclass => {
                     if let Some(type_node) = child.child_by_field_name("type") {
                         extends = Some(self.get_node_text(&type_node, source)?);
                     }
                 }
-                "super_interfaces" => {
+                JavaNodeKind::SuperInterfaces => {
                     for interface in child.children(&mut child.walk()) {
-                        if interface.kind() == "type_identifier" {
+                        let interface_kind = JavaNodeKind::from_str(interface.kind());
+                        if interface_kind == JavaNodeKind::TypeIdentifier {
                             if let Ok(name) = self.get_node_text(&interface, source) {
                                 implements.push(name);
                             }
@@ -242,10 +430,12 @@ impl JavaParser {
     fn get_fields(&self, node: &Node, source: &str) -> Result<Vec<Field>> {
         let mut fields = Vec::new();
 
+        //语义驱动,获取指定的Node
         let body = node.child_by_field_name("body");
         if let Some(body) = body {
             for child in body.children(&mut body.walk()) {
-                if child.kind() == "field_declaration" {
+                let kind = JavaNodeKind::from_str(child.kind());
+                if kind == JavaNodeKind::FieldDeclaration {
                     if let Some(field) = self.parse_field(&child, source)? {
                         fields.push(field);
                     }
@@ -258,31 +448,31 @@ impl JavaParser {
 
     fn parse_field(&self, node: &Node, source: &str) -> Result<Option<Field>> {
         let mut cursor = node.walk();
+        //下面是field包含的字段
         let mut name = None;
         let mut type_name = None;
         let mut modifiers = Vec::new();
         let mut annotations = Vec::new();
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "modifier" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Modifier => {
                     if let Ok(text) = self.get_node_text(&child, source) {
                         modifiers.push(text);
                     }
                 }
-                "annotation" => {
+                JavaNodeKind::Annotation => {
                     if let Some(annotation) = self.parse_annotation(&child, source)? {
                         annotations.push(annotation);
                     }
                 }
-                "variable_declarator" => {
+                JavaNodeKind::VariableDeclarator => {
                     if let Some(identifier) = child.child_by_field_name("name") {
                         name = Some(self.get_node_text(&identifier, source)?);
                     }
                 }
-                "type_identifier" | "scoped_type_identifier" | "generic_type"
-                | "integral_type" | "floating_point_type" | "boolean_type"
-                | "void_type" | "array_type" => {
+                kind if kind.is_type() => {
                     type_name = Some(self.get_node_text(&child, source)?);
                 }
                 _ => {
@@ -290,11 +480,9 @@ impl JavaParser {
                     if type_name.is_none() {
                         let mut type_cursor = child.walk();
                         for type_child in child.children(&mut type_cursor) {
-                            match type_child.kind() {
-                                "type_identifier" | "scoped_type_identifier" | "identifier" => {
-                                    type_name = Some(self.get_node_text(&type_child, source)?);
-                                }
-                                _ => {}
+                            let type_child_kind = JavaNodeKind::from_str(type_child.kind());
+                            if type_child_kind.is_type() || type_child_kind == JavaNodeKind::Identifier {
+                                type_name = Some(self.get_node_text(&type_child, source)?);
                             }
                         }
                     }
@@ -317,7 +505,8 @@ impl JavaParser {
         let body = node.child_by_field_name("body");
         if let Some(body) = body {
             for child in body.children(&mut body.walk()) {
-                if child.kind() == "method_declaration" {
+                let kind = JavaNodeKind::from_str(child.kind());
+                if kind == JavaNodeKind::MethodDeclaration {
                     if let Some(method) = self.parse_method(&child, source)? {
                         methods.push(method);
                     }
@@ -337,30 +526,27 @@ impl JavaParser {
         let mut annotations = Vec::new();
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "modifier" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Modifier => {
                     if let Ok(text) = self.get_node_text(&child, source) {
                         modifiers.push(text);
                     }
                 }
-                "annotation" => {
+                JavaNodeKind::Annotation => {
                     if let Some(annotation) = self.parse_annotation(&child, source)? {
                         annotations.push(annotation);
                     }
                 }
-                "identifier" => {
+                JavaNodeKind::Identifier => {
                     if name.is_none() {
                         name = Some(self.get_node_text(&child, source)?);
                     }
                 }
-                "formal_parameters" => {
+                JavaNodeKind::FormalParameters => {
                     parameters = self.parse_parameters(&child, source)?;
                 }
-                "type_identifier"
-                | "integral_type"
-                | "floating_point_type"
-                | "boolean_type"
-                | "void_type" => {
+                kind if kind.is_type() => {
                     return_type = Some(self.get_node_text(&child, source)?);
                 }
                 _ => {}
@@ -382,7 +568,8 @@ impl JavaParser {
         let mut parameters = Vec::new();
 
         for child in node.children(&mut node.walk()) {
-            if child.kind() == "formal_parameter" {
+            let kind = JavaNodeKind::from_str(child.kind());
+            if kind == JavaNodeKind::FormalParameter {
                 if let Some(param) = self.parse_parameter(&child, source)? {
                     parameters.push(param);
                 }
@@ -399,22 +586,23 @@ impl JavaParser {
         let mut annotations = Vec::new();
 
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "annotation" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::Annotation => {
                     if let Some(annotation) = self.parse_annotation(&child, source)? {
                         annotations.push(annotation);
                     }
                 }
-                "identifier" => {
+                JavaNodeKind::Identifier => {
                     if name.is_none() {
                         name = Some(self.get_node_text(&child, source)?);
                     }
                 }
-                "type_identifier"
-                | "integral_type"
-                | "floating_point_type"
-                | "boolean_type"
-                | "void_type" => {
+                JavaNodeKind::TypeIdentifier
+                | JavaNodeKind::IntegralType
+                | JavaNodeKind::FloatingPointType
+                | JavaNodeKind::BooleanType
+                | JavaNodeKind::VoidType => {
                     type_name = Some(self.get_node_text(&child, source)?);
                 }
                 _ => {}
@@ -431,8 +619,9 @@ impl JavaParser {
     fn get_package_name(&self, node: &Node, source: &str) -> Result<String> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "scoped_identifier" | "identifier" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::ScopedIdentifier | JavaNodeKind::Identifier => {
                     return self.get_node_text(&child, source);
                 }
                 _ => {
@@ -451,16 +640,18 @@ impl JavaParser {
     fn get_import_name(&self, node: &Node, source: &str) -> Result<Option<String>> {
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
-            match child.kind() {
-                "scoped_identifier" | "identifier" | "asterisk" => {
+            let kind = JavaNodeKind::from_str(child.kind());
+            match kind {
+                JavaNodeKind::ScopedIdentifier | JavaNodeKind::Identifier | JavaNodeKind::Asterisk => {
                     return Ok(Some(self.get_node_text(&child, source)?));
                 }
                 _ => {
-                    // Recursively look for import path
+                    // Recursively look for import path, import 语法最多两层
                     let mut import_cursor = child.walk();
                     for import_child in child.children(&mut import_cursor) {
-                        match import_child.kind() {
-                            "scoped_identifier" | "identifier" => {
+                        let import_child_kind = JavaNodeKind::from_str(import_child.kind());
+                        match import_child_kind {
+                            JavaNodeKind::ScopedIdentifier | JavaNodeKind::Identifier => {
                                 return Ok(Some(self.get_node_text(&import_child, source)?));
                             }
                             _ => {}
@@ -503,7 +694,8 @@ impl JavaParser {
         let mut cursor = node.walk();
 
         for child in node.children(&mut cursor) {
-            if child.kind() == "comment" {
+            let kind = JavaNodeKind::from_str(child.kind());
+            if kind == JavaNodeKind::Comment {
                 let text = self.get_node_text(&child, source)?;
                 if text.starts_with("/**") {
                     return Ok(Some(text));
@@ -561,7 +753,10 @@ mod tests {
         assert_eq!(declaration.name, "UserService");
         assert!(matches!(declaration.kind, DeclarationKind::Class));
         // Relax assertions for tree-sitter parsing differences
-        assert!(declaration.modifiers.is_empty() || declaration.modifiers.contains(&"public".to_string()));
+        assert!(
+            declaration.modifiers.is_empty()
+                || declaration.modifiers.contains(&"public".to_string())
+        );
         assert!(declaration.annotations.is_empty() || declaration.annotations[0].name == "Service");
         // Allow zero or more fields and methods
         let _ = declaration.fields.len();

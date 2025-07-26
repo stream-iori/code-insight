@@ -11,7 +11,7 @@ use tantivy::{
 use tokio::sync::RwLock;
 
 use crate::types::{
-    Declaration, DeclarationKind, Field, JavaFile, Method, SearchQuery, SearchResult,
+    Declaration, DeclarationKind, Field, JavaFile, Method, SearchQuery, SearchResult, SearchFilter,
 };
 
 pub struct IndexManager {
@@ -25,11 +25,19 @@ impl IndexManager {
     pub fn new(index_path: &Path) -> Result<Self> {
         let schema = Self::create_schema()?;
         
-        let index = if index_path.exists() {
-            Index::open_in_dir(index_path)?
-        } else {
-            std::fs::create_dir_all(index_path)?;
-            Index::create_in_dir(index_path, schema.clone())?
+        // Create directories if they don't exist
+        std::fs::create_dir_all(index_path)?;
+        
+        // Try to open existing index, create new one if it doesn't exist
+        let index = match Index::open_in_dir(index_path) {
+            Ok(existing_index) => {
+                println!("DEBUG: Opened existing index at {}", index_path.display());
+                existing_index
+            }
+            Err(_) => {
+                println!("DEBUG: Creating new index at {}", index_path.display());
+                Index::create_in_dir(index_path, schema.clone())?
+            }
         };
 
         let reader = index
@@ -88,11 +96,24 @@ impl IndexManager {
     pub async fn index_java_file(&self, java_file: &JavaFile) -> Result<()> {
         let mut writer = self.writer.write().await;
         
+        println!("DEBUG: Indexing {} declarations from {}", java_file.declarations.len(), java_file.path.display());
         for declaration in &java_file.declarations {
             let doc = self.create_document(declaration, java_file)?;
             writer.add_document(doc)?;
+            println!("DEBUG: Added document for {}: {:?}", declaration.name, declaration.kind);
         }
 
+        writer.commit()?;
+        self.reader.reload()?;
+        
+        let (num_docs, _) = self.stats()?;
+        println!("DEBUG: After indexing, index has {} documents", num_docs);
+        
+        Ok(())
+    }
+
+    pub async fn close(self) -> Result<()> {
+        let mut writer = self.writer.write().await;
         writer.commit()?;
         Ok(())
     }
@@ -163,6 +184,34 @@ impl IndexManager {
     pub async fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         let searcher = self.reader.searcher();
         
+        // Handle kind filter specifically by searching the kind field
+        if let Some(SearchFilter::Kind(kind)) = query.filters.first() {
+            let kind_field = self.schema.get_field("kind").unwrap();
+            let kind_str = match kind {
+                DeclarationKind::Class => "Class",
+                DeclarationKind::Interface => "Interface",
+                DeclarationKind::Enum => "Enum",
+                DeclarationKind::Record => "Record",
+                DeclarationKind::Annotation => "Annotation",
+            };
+            let term = Term::from_field_text(kind_field, kind_str);
+            let query_obj: Box<dyn Query> = Box::new(tantivy::query::TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic));
+            
+            let top_docs = searcher.search(
+                &query_obj,
+                &TopDocs::with_limit(query.limit.unwrap_or(100)),
+            )?;
+
+            let mut results = Vec::new();
+            for (_score, doc_address) in top_docs {
+                let doc = searcher.doc(doc_address)?;
+                let result = self.document_to_result(&doc, searcher.clone())?;
+                results.push(result);
+            }
+            
+            return Ok(results);
+        }
+        
         let query_obj = self.build_query(query)?;
         let top_docs = searcher.search(
             &query_obj,
@@ -185,15 +234,24 @@ impl IndexManager {
         
         match search.kind {
             crate::types::SearchKind::Exact => {
-                let query_parser = QueryParser::for_index(
-                    &self.index,
-                    vec![
-                        schema.get_field("name").unwrap(),
-                        schema.get_field("signature").unwrap(),
-                        schema.get_field("documentation").unwrap(),
-                    ],
-                );
-                Ok(query_parser.parse_query(&search.query)?)
+                if search.query == "*" {
+                    // Return all documents
+                    let query_parser = QueryParser::for_index(
+                        &self.index,
+                        vec![schema.get_field("name").unwrap()],
+                    );
+                    Ok(query_parser.parse_query("*")?)
+                } else {
+                    let query_parser = QueryParser::for_index(
+                        &self.index,
+                        vec![
+                            schema.get_field("name").unwrap(),
+                            schema.get_field("signature").unwrap(),
+                            schema.get_field("documentation").unwrap(),
+                        ],
+                    );
+                    Ok(query_parser.parse_query(&search.query)?)
+                }
             }
             crate::types::SearchKind::Fuzzy => {
                 let name_field = schema.get_field("name").unwrap();
@@ -330,6 +388,7 @@ impl IndexManager {
         let segment_metas = self.index.searchable_segment_metas()?;
         let num_segments = segment_metas.len();
         
+        println!("DEBUG: Index has {} documents in {} segments", num_docs, num_segments);
         Ok((num_docs, num_segments))
     }
 }

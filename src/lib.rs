@@ -9,19 +9,20 @@
 /// 
 /// # Basic Usage
 /// 
-/// ```rust
+/// ```rust,no_run
 /// use code_insight::{
 ///     maven::MavenParser,
 ///     parser::FileParser,
 ///     indexer::IndexManager,
 /// };
+/// use std::path::Path;
 /// 
 /// // Parse a Maven project
 /// let parser = MavenParser;
-/// let modules = parser.find_maven_modules("/path/to/project").unwrap();
+/// let modules = parser.find_maven_modules(Path::new("/path/to/project")).unwrap();
 /// 
 /// // Build a search index
-/// let indexer = IndexManager::new("/path/to/index").unwrap();
+/// let indexer = IndexManager::new(Path::new("/path/to/index")).unwrap();
 /// ```
 
 pub mod types;
