@@ -169,11 +169,24 @@ impl GraphBuilder {
     pub fn get_components(&self) -> Vec<Vec<String>> {
         let mut components = Vec::new();
         let mut visited = HashSet::new();
+        let mut all_nodes = HashSet::new();
 
+        // Collect all nodes from both nodes map and type references
         for node in self.nodes.keys() {
-            if !visited.contains(node) {
+            all_nodes.insert(node.clone());
+        }
+        
+        for (from, to_set) in &self.type_references {
+            all_nodes.insert(from.clone());
+            for to in to_set {
+                all_nodes.insert(to.clone());
+            }
+        }
+
+        for node in all_nodes {
+            if !visited.contains(&node) {
                 let mut component = Vec::new();
-                self.bfs_component(node, &mut visited, &mut component);
+                self.bfs_component(&node, &mut visited, &mut component);
                 components.push(component);
             }
         }
@@ -266,7 +279,10 @@ mod tests {
         builder.add_type_reference("UserService".to_string(), "User".to_string());
         builder.add_type_reference("UserController".to_string(), "UserService".to_string());
         
-        assert_eq!(builder.get_dependencies("UserService"), vec!["UserRepository", "User"]);
+        let deps = builder.get_dependencies("UserService");
+        assert!(deps.contains(&"UserRepository".to_string()));
+        assert!(deps.contains(&"User".to_string()));
+        assert_eq!(deps.len(), 2);
         assert_eq!(builder.get_dependents("UserService"), vec!["UserController"]);
     }
 

@@ -51,7 +51,7 @@ impl XmlParser {
         
         loop {
             match reader.read_event_into(&mut buf) {
-                Ok(Event::Start(ref e)) => {
+                Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
                     let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
                     if tag_name == "bean" || tag_name.ends_with(":bean") {
                         for attr in e.attributes() {

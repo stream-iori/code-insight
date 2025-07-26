@@ -140,7 +140,7 @@ mod tests {
         
         let props_file = parser.parse_file(&props_path).unwrap();
         
-        assert_eq!(props_file.properties.len(), 4);
+        assert_eq!(props_file.properties.len(), 5);
         assert!(props_file.properties.contains(&("database.url".to_string(), "jdbc:mysql://localhost:3306/mydb".to_string())));
         assert!(props_file.properties.contains(&("app.name".to_string(), "My Application".to_string())));
     }

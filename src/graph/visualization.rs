@@ -128,11 +128,15 @@ impl GraphVisualizer {
         depth: usize,
         collected: &mut HashSet<String>,
     ) {
-        if depth == 0 || collected.contains(node_id) {
+        if collected.contains(node_id) {
             return;
         }
 
         collected.insert(node_id.to_string());
+
+        if depth == 0 {
+            return;
+        }
 
         // Collect direct neighbors
         for edge in &graph.edges {
@@ -409,7 +413,7 @@ mod tests {
 
         let dot = visualizer.to_dot(&graph, &config).unwrap();
         assert!(dot.contains("digraph G"));
-        assert!(dot.contains("A -> B"));
+        assert!(dot.contains(r#""A" -> "B""#));
     }
 
     #[test]

@@ -13,6 +13,7 @@ target/
 # OS
 .DS_Store
 Thumbs.db
+.claude/
 
 # Logs
 *.log
