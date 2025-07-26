@@ -185,6 +185,99 @@ impl JavaNodeKind {
     }
 }
 
+/// A Java source code parser that generates fully qualified signatures for declarations.
+///
+/// This parser uses tree-sitter to parse Java source code and generates
+/// fully qualified names (FQN) for class, interface, enum, and other declarations.
+///
+/// # Examples
+///
+/// ```
+/// use code_insight::parser::JavaParser;
+/// use tempfile::tempdir;
+/// use std::fs;
+///
+/// let mut parser = JavaParser::new().unwrap();
+/// let java_content = r#"
+///     package com.example.service;
+///     
+///     public class UserService {
+///         private String name;
+///     }
+/// "#;
+/// 
+/// let dir = tempdir().unwrap();
+/// let java_path = dir.path().join("UserService.java");
+/// fs::write(&java_path, java_content).unwrap();
+/// 
+/// let java_file = parser.parse_file(&java_path).unwrap();
+/// assert_eq!(java_file.declarations[0].signature, "public class com.example.service.UserService");
+/// ```
+///
+/// # FQN Signatures with Modifiers
+///
+/// This parser generates fully qualified names (FQN) that include:
+/// - Access modifiers (public, private, protected)
+/// - Other modifiers (static, final, abstract, etc.)
+/// - Package name as part of the FQN
+/// - Declaration type (class, interface, enum, etc.)
+///
+/// ```
+/// use code_insight::parser::JavaParser;
+/// use tempfile::tempdir;
+/// use std::fs;
+///
+/// let mut parser = JavaParser::new().unwrap();
+/// 
+/// // Example with multiple modifiers
+/// let java_content = r#"
+///     package com.example.util;
+///     
+///     public final class StringUtils {
+///         public static String trim(String input) {
+///             return input.trim();
+///         }
+///     }
+/// "#;
+/// 
+/// let dir = tempdir().unwrap();
+/// let java_path = dir.path().join("StringUtils.java");
+/// fs::write(&java_path, java_content).unwrap();
+/// 
+/// let java_file = parser.parse_file(&java_path).unwrap();
+/// let signature = java_file.declarations[0].signature.clone();
+/// assert_eq!(signature, "public final class com.example.util.StringUtils");
+/// 
+/// // Example with interface
+/// let interface_content = r#"
+///     package com.example.api;
+///     
+///     public interface Repository {
+///         void save(Object obj);
+///     }
+/// "#;
+/// 
+/// let interface_path = dir.path().join("Repository.java");
+/// fs::write(&interface_path, interface_content).unwrap();
+/// 
+/// let interface_file = parser.parse_file(&interface_path).unwrap();
+/// let interface_signature = interface_file.declarations[0].signature.clone();
+/// assert_eq!(interface_signature, "public interface com.example.api.Repository");
+/// 
+/// // Example without package (default package)
+/// let default_content = r#"
+///     public class DefaultClass {
+///         private int value;
+///     }
+/// "#;
+/// 
+/// let default_path = dir.path().join("DefaultClass.java");
+/// fs::write(&default_path, default_content).unwrap();
+/// 
+/// let default_file = parser.parse_file(&default_path).unwrap();
+/// let default_signature = default_file.declarations[0].signature.clone();
+/// assert_eq!(default_signature, "public class DefaultClass");
+/// ```
 pub struct JavaParser {
     //tree-sitter的parser
     parser: Parser,
@@ -250,7 +343,7 @@ impl JavaParser {
                     }
                 }
                 kind if kind.is_declaration() => {
-                    if let Some(declaration) = self.parse_declaration(&child, source)? {
+                    if let Some(declaration) = self.parse_declaration(&child, source, java_file)? {
                         java_file.declarations.push(declaration);
                     }
                 }
@@ -261,7 +354,7 @@ impl JavaParser {
         Ok(())
     }
 
-    fn parse_declaration(&self, node: &Node, source: &str) -> Result<Option<Declaration>> {
+    fn parse_declaration(&self, node: &Node, source: &str, java_file: &JavaFile) -> Result<Option<Declaration>> {
         let node_kind = JavaNodeKind::from_str(node.kind());
         let kind = match node_kind.to_declaration_kind() {
             Some(k) => k,
@@ -271,7 +364,7 @@ impl JavaParser {
         let name = self.get_declaration_name(node, source)?;
         let modifiers = self.get_modifiers(node, source)?;
         let annotations = self.get_annotations(node, source)?;
-        let signature = self.get_signature(node, source)?;
+        let signature = self.get_signature(node, source, java_file)?;
 
         let (extends, implements) = self.get_inheritance_info(node, source)?;
         let fields = self.get_fields(node, source)?;
@@ -307,13 +400,28 @@ impl JavaParser {
 
     fn get_modifiers(&self, node: &Node, source: &str) -> Result<Vec<String>> {
         let mut modifiers = Vec::new();
-
-        for child in node.children(&mut node.walk()) {
-            let kind = JavaNodeKind::from_str(child.kind());
-            if kind.is_modifier() {
-                if let Ok(text) = self.get_node_text(&child, source) {
-                    modifiers.push(text);
-                }
+        
+        // Get the full text of the declaration node
+        let declaration_text = self.get_node_text(node, source)?;
+        
+        // Common Java modifiers to look for
+        let java_modifiers = [
+            "public", "private", "protected", "static", "final", "abstract",
+            "synchronized", "volatile", "transient", "native", "strictfp"
+        ];
+        
+        // Split the declaration text into tokens and look for modifiers
+        let tokens: Vec<&str> = declaration_text.split_whitespace().collect();
+        
+        for token in tokens {
+            let clean_token = token.trim();
+            if java_modifiers.contains(&clean_token) && !modifiers.contains(&clean_token.to_string()) {
+                modifiers.push(clean_token.to_string());
+            }
+            
+            // Stop when we hit the class/interface/enum keyword
+            if matches!(clean_token, "class" | "interface" | "enum" | "record" | "@interface") {
+                break;
             }
         }
 
@@ -390,8 +498,66 @@ impl JavaParser {
         Ok(key.zip(value))
     }
 
-    fn get_signature(&self, node: &Node, source: &str) -> Result<String> {
-        self.get_node_text(node, source)
+    /// Generates a fully qualified signature for Java declarations
+    ///
+    /// This method constructs signatures that include the package name,
+    /// providing fully qualified names for classes, interfaces, enums, etc.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// // With package
+    /// // Input: package com.example; public class UserService {}
+    /// // Output: "public class com.example.UserService"
+    ///
+    /// // Without package (default package)
+    /// // Input: public class DefaultClass {}
+    /// // Output: "public class DefaultClass"
+    ///
+    /// // Interface with package
+    /// // Input: package com.api; public interface Repository {}
+    /// // Output: "public interface com.api.Repository"
+    /// ```
+    fn get_signature(
+        &self,
+        node: &Node,
+        source: &str,
+        java_file: &JavaFile,
+    ) -> Result<String> {
+        let node_kind = JavaNodeKind::from_str(node.kind());
+        let kind = match node_kind.to_declaration_kind() {
+            Some(k) => k,
+            None => return self.get_node_text(node, source),
+        };
+
+        let name = self.get_declaration_name(node, source)?;
+        let modifiers = self.get_modifiers(node, source)?;
+        
+        let mut signature_parts = Vec::new();
+        
+        // Add modifiers
+        if !modifiers.is_empty() {
+            signature_parts.extend(modifiers);
+        }
+        
+        // Add kind and name with FQN
+        match kind {
+            DeclarationKind::Class => signature_parts.push("class".to_string()),
+            DeclarationKind::Interface => signature_parts.push("interface".to_string()),
+            DeclarationKind::Enum => signature_parts.push("enum".to_string()),
+            DeclarationKind::Record => signature_parts.push("record".to_string()),
+            DeclarationKind::Annotation => signature_parts.push("@interface".to_string()),
+        }
+        
+        // Use fully qualified name
+        let fqn = if java_file.package.is_empty() {
+            name
+        } else {
+            format!("{}.{}", java_file.package, name)
+        };
+        signature_parts.push(fqn);
+        
+        Ok(signature_parts.join(" "))
     }
 
     fn get_inheritance_info(
@@ -752,15 +918,15 @@ mod tests {
         let declaration = &java_file.declarations[0];
         assert_eq!(declaration.name, "UserService");
         assert!(matches!(declaration.kind, DeclarationKind::Class));
-        // Relax assertions for tree-sitter parsing differences
-        assert!(
-            declaration.modifiers.is_empty()
-                || declaration.modifiers.contains(&"public".to_string())
-        );
-        assert!(declaration.annotations.is_empty() || declaration.annotations[0].name == "Service");
-        // Allow zero or more fields and methods
-        let _ = declaration.fields.len();
-        let _ = declaration.methods.len();
+        
+        // Debug the actual structure
+        println!("Declaration: {:?}", declaration);
+        println!("Modifiers: {:?}", declaration.modifiers);
+        println!("Signature: {}", declaration.signature);
+        
+        // Test FQN signature with modifiers and package
+        let expected_signature = "public class com.example.UserService";
+        assert_eq!(declaration.signature, expected_signature);
     }
 
     #[test]
@@ -787,5 +953,45 @@ mod tests {
         assert_eq!(declaration.name, "UserRepository");
         assert!(matches!(declaration.kind, DeclarationKind::Interface));
         assert_eq!(declaration.methods.len(), 3);
+        
+        // Test FQN signature for interface
+        let expected_signature = "public interface com.example.api.UserRepository";
+        assert_eq!(declaration.signature, expected_signature);
+    }
+
+    #[test]
+    fn test_fqn_signatures() {
+        let mut parser = JavaParser::new().unwrap();
+        
+        // Test with package
+        let java_with_package = r#"
+            package com.test.nested;
+            
+            public class TestClass {
+                private int value;
+            }
+        "#;
+        
+        let dir = tempdir().unwrap();
+        let java_path = dir.path().join("TestClass.java");
+        std::fs::write(&java_path, java_with_package).unwrap();
+        
+        let java_file = parser.parse_file(&java_path).unwrap();
+        assert_eq!(java_file.declarations.len(), 1);
+        assert_eq!(java_file.declarations[0].signature, "public class com.test.nested.TestClass");
+        
+        // Test without package (default package)
+        let java_without_package = r#"
+            public class DefaultPackageClass {
+                private String name;
+            }
+        "#;
+        
+        let java_path2 = dir.path().join("DefaultPackageClass.java");
+        std::fs::write(&java_path2, java_without_package).unwrap();
+        
+        let java_file2 = parser.parse_file(&java_path2).unwrap();
+        assert_eq!(java_file2.declarations.len(), 1);
+        assert_eq!(java_file2.declarations[0].signature, "public class DefaultPackageClass");
     }
 }

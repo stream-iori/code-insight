@@ -12,6 +12,27 @@ use std::path::{Path, PathBuf};
 
 pub struct FileParser;
 
+pub enum FileExtension {
+    Java,
+    Xml,
+    Property,
+}
+
+pub trait FileMeta {
+    fn path(&self) -> &PathBuf;
+    fn name(&self) -> String;
+    fn extension(&self) -> FileExtension;
+    fn hash_value(&self) -> String;
+}
+
+pub trait FileParseable<T>
+where
+    T: FileMeta,
+{
+    ///Parse file with some definition
+    fn parse_file(&self, path: &Path) -> Result<T>;
+}
+
 impl FileParser {
     pub fn new() -> Result<Self> {
         Ok(Self)

@@ -34,6 +34,7 @@ pub mod graph;
 pub mod llm;
 pub mod cli;
 pub mod r#async;
+mod type_config;
 
 pub use types::*;
 pub use cli::*;
