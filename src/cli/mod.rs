@@ -12,6 +12,7 @@ use crate::{
     graph::{GraphBuilder, GraphVisualizer, VisualizationConfig},
     types::{SearchQuery, SearchKind, DeclarationKind},
 };
+use crate::parser::{FileParseable, JavaStructureParser};
 
 #[derive(Parser)]
 #[command(name = "code-insight")]
@@ -289,6 +290,7 @@ async fn build_index(project_root: &Path, index_path: &Path, force: bool) -> Res
 
     let index_manager = IndexManager::new(index_path)?;
     let file_parser = FileParser::new()?;
+    let mut java_structure_parser = JavaStructureParser::new()?;
 
     let java_files = file_parser.find_source_files(project_root)?
         .into_iter()
@@ -299,9 +301,9 @@ async fn build_index(project_root: &Path, index_path: &Path, force: bool) -> Res
 
     let mut processed = 0;
     for file_path in java_files {
-        match file_parser.parse_java_file(&file_path) {
-            Ok(java_file) => {
-                index_manager.index_java_file(&java_file).await?;
+        match java_structure_parser.parse_structure(&file_path) {
+            Ok(java_structure) => {
+                index_manager.index_java_file(&java_structure).await?;
                 processed += 1;
                 
                 if processed % 100 == 0 {

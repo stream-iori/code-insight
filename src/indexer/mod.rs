@@ -9,9 +9,9 @@ use tantivy::{
     Index, IndexReader, IndexWriter, Searcher, Term,
 };
 use tokio::sync::RwLock;
-
+use crate::parser::JavaStructurePreview;
 use crate::types::{
-    Declaration, DeclarationKind, Field, JavaFile, Method, SearchQuery, SearchResult, SearchFilter,
+    Declaration, DeclarationKind, Field, Method, SearchQuery, SearchResult, SearchFilter,
 };
 
 pub struct IndexManager {
@@ -93,12 +93,15 @@ impl IndexManager {
         Ok(schema_builder.build())
     }
 
-    pub async fn index_java_file(&self, java_file: &JavaFile) -> Result<()> {
+    pub async fn index_java_file(&self, java_structure: &JavaStructurePreview) -> Result<()> {
         let mut writer = self.writer.write().await;
         
-        println!("DEBUG: Indexing {} declarations from {}", java_file.declarations.len(), java_file.path.display());
-        for declaration in &java_file.declarations {
-            let doc = self.create_document(declaration, java_file)?;
+        // Convert JavaStructurePreview to declarations and index them
+        let declarations = self.convert_structure_to_declarations(java_structure);
+        
+        println!("DEBUG: Indexing {} declarations from {}", declarations.len(), java_structure.file_meta.path.display());
+        for declaration in &declarations {
+            let doc = self.create_document(declaration, java_structure)?;
             writer.add_document(doc)?;
             println!("DEBUG: Added document for {}: {:?}", declaration.name, declaration.kind);
         }
@@ -118,7 +121,94 @@ impl IndexManager {
         Ok(())
     }
 
-    fn create_document(&self, declaration: &Declaration, java_file: &JavaFile) -> Result<TantivyDocument> {
+    fn convert_structure_to_declarations(&self, java_structure: &JavaStructurePreview) -> Vec<Declaration> {
+        let mut declarations = Vec::new();
+        let package = java_structure.package.as_deref().unwrap_or("");
+        
+        // Convert top-level classes
+        for class in &java_structure.top_level_classes {
+            declarations.push(self.class_to_declaration(class, package, &java_structure.file_meta.path));
+        }
+        
+        declarations
+    }
+
+    fn class_to_declaration(&self, class: &crate::parser::ClassStructure, package: &str, file_path: &Path) -> Declaration {
+        let fqn = if package.is_empty() {
+            class.name.clone()
+        } else {
+            format!("{}. {}", package, class.name)
+        };
+
+        let kind = match class.kind {
+            crate::parser::ClassKind::Class => DeclarationKind::Class,
+            crate::parser::ClassKind::Interface => DeclarationKind::Interface,
+            crate::parser::ClassKind::Enum => DeclarationKind::Enum,
+            crate::parser::ClassKind::Record => DeclarationKind::Record,
+            crate::parser::ClassKind::Annotation => DeclarationKind::Annotation,
+        };
+
+        Declaration {
+            name: class.name.clone(),
+            kind,
+            modifiers: class.modifiers.clone(),
+            annotations: class.annotations.iter().map(|a| crate::types::Annotation {
+                name: a.name.clone(),
+                values: a.values.clone(),
+            }).collect(),
+            signature: format!("{} {}", class.modifiers.join(" "), class.name),
+            extends: class.extends.clone(),
+            implements: class.implements.clone(),
+            fields: class.fields.iter().map(|f| Field {
+                name: f.name.clone(),
+                type_name: f.type_name.clone(),
+                modifiers: f.modifiers.clone(),
+                annotations: f.annotations.iter().map(|a| crate::types::Annotation {
+                    name: a.name.clone(),
+                    values: a.values.clone(),
+                }).collect(),
+                range: crate::types::SourceRange {
+                    start_line: f.range.start_line,
+                    start_column: f.range.start_column,
+                    end_line: f.range.end_line,
+                    end_column: f.range.end_column,
+                },
+            }).collect(),
+            methods: class.methods.iter().map(|m| Method {
+                name: m.name.clone(),
+                return_type: m.return_type.clone(),
+                parameters: m.parameters.iter().map(|p| crate::types::Parameter {
+                    name: p.name.clone(),
+                    type_name: p.type_name.clone(),
+                    annotations: p.annotations.iter().map(|a| crate::types::Annotation {
+                        name: a.name.clone(),
+                        values: a.values.clone(),
+                    }).collect(),
+                }).collect(),
+                modifiers: m.modifiers.clone(),
+                annotations: m.annotations.iter().map(|a| crate::types::Annotation {
+                    name: a.name.clone(),
+                    values: a.values.clone(),
+                }).collect(),
+                range: crate::types::SourceRange {
+                    start_line: m.range.start_line,
+                    start_column: m.range.start_column,
+                    end_line: m.range.end_line,
+                    end_column: m.range.end_column,
+                },
+                body_range: None,
+            }).collect(),
+            range: crate::types::SourceRange {
+                start_line: class.range.start_line,
+                start_column: class.range.start_column,
+                end_line: class.range.end_line,
+                end_column: class.range.end_column,
+            },
+            documentation: class.documentation.clone(),
+        }
+    }
+
+    fn create_document(&self, declaration: &Declaration, java_structure: &JavaStructurePreview) -> Result<TantivyDocument> {
         let schema = &self.schema;
         
         let name_field = schema.get_field("name").unwrap();
@@ -142,8 +232,8 @@ impl IndexManager {
         let mut doc = TantivyDocument::new();
         
         doc.add_text(name_field, &declaration.name);
-        doc.add_text(package_field, &java_file.package);
-        doc.add_text(file_path_field, java_file.path.to_string_lossy().as_ref());
+        doc.add_text(package_field, &java_structure.package.as_deref().unwrap_or(""));
+        doc.add_text(file_path_field, java_structure.file_meta.path.to_string_lossy().as_ref());
         doc.add_text(signature_field, &declaration.signature);
         
         if let Some(documentation) = &declaration.documentation {
@@ -176,7 +266,7 @@ impl IndexManager {
         doc.add_u64(start_column_field, declaration.range.start_column as u64);
         doc.add_u64(end_column_field, declaration.range.end_column as u64);
 
-        doc.add_text(source_hash_field, &java_file.source_hash);
+        doc.add_text(source_hash_field, &java_structure.file_meta.hash_value);
 
         Ok(doc)
     }
@@ -417,23 +507,29 @@ mod tests {
         
         let manager = IndexManager::new(&index_path).unwrap();
         
-        let java_file = crate::types::JavaFile {
-            path: PathBuf::from("/test/UserService.java"),
-            module: None,
-            package: "com.example".to_string(),
+        let java_structure = crate::parser::JavaStructurePreview {
+            file_meta: crate::parser::FileMeta {
+                path: PathBuf::from("/test/UserService.java"),
+                name: "UserService.java".to_string(),
+                suffix: crate::parser::FileSuffix::Java,
+                hash_value: "abc123".to_string(),
+            },
+            package: Some("com.example".to_string()),
             imports: vec![],
-            declarations: vec![
-                Declaration {
+            top_level_classes: vec![
+                crate::parser::ClassStructure {
                     name: "UserService".to_string(),
-                    kind: DeclarationKind::Class,
+                    fqn: "com.example.UserService".to_string(),
+                    kind: crate::parser::ClassKind::Class,
                     modifiers: vec!["public".to_string()],
                     annotations: vec![],
-                    signature: "public class UserService".to_string(),
                     extends: None,
                     implements: vec![],
+                    type_parameters: vec![],
                     fields: vec![],
                     methods: vec![],
-                    range: SourceRange {
+                    nested_classes: vec![],
+                    range: crate::parser::SourceRange {
                         start_line: 1,
                         start_column: 1,
                         end_line: 10,
@@ -442,10 +538,10 @@ mod tests {
                     documentation: Some("Service for user operations".to_string()),
                 },
             ],
-            source_hash: "abc123".to_string(),
+            file_annotations: vec![],
         };
 
-        manager.index_java_file(&java_file).await.unwrap();
+        manager.index_java_file(&java_structure).await.unwrap();
         
         // Ensure index is committed
         manager.optimize().await.unwrap();

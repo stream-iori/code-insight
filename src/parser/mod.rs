@@ -1,36 +1,52 @@
-mod java;
+mod java_structure;
 mod properties;
 mod xml;
 
-pub use java::*;
+pub use java_structure::*;
 pub use properties::*;
 pub use xml::*;
 
-use crate::types::{JavaFile, PropertiesFile, XmlFile};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub struct FileParser;
 
-pub enum FileExtension {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FileSuffix {
     Java,
     Xml,
     Property,
 }
 
-pub trait FileMeta {
-    fn path(&self) -> &PathBuf;
-    fn name(&self) -> String;
-    fn extension(&self) -> FileExtension;
-    fn hash_value(&self) -> String;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileMeta {
+    pub path: PathBuf,
+    pub name: String,
+    pub suffix: FileSuffix,
+    pub hash_value: String,
 }
 
-pub trait FileParseable<T>
-where
-    T: FileMeta,
-{
+impl FileMeta {
+    pub fn new(path: &Path, suffix: FileSuffix, source: &str) -> Self {
+        let hash_value = format!("{:x}", md5::compute(source));
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+        FileMeta {
+            path: path.to_path_buf(),
+            name,
+            suffix,
+            hash_value,
+        }
+    }
+}
+
+pub trait FileParseable<T> {
     ///Parse file with some definition
-    fn parse_file(&self, path: &Path) -> Result<T>;
+    fn parse_file(&mut self, path: &Path) -> Result<T>;
 }
 
 impl FileParser {
@@ -38,20 +54,8 @@ impl FileParser {
         Ok(Self)
     }
 
-    //fixme:下面三个方法可以只用一个方法,然后传入一个enum
-
-    pub fn parse_java_file(&self, path: &Path) -> Result<JavaFile> {
-        let mut parser = JavaParser::new()?;
-        parser.parse_file(path)
-    }
-
-    pub fn parse_xml_file(&self, path: &Path) -> Result<XmlFile> {
-        let parser = XmlParser;
-        parser.parse_file(path)
-    }
-
-    pub fn parse_properties_file(&self, path: &Path) -> Result<PropertiesFile> {
-        let parser = PropertiesParser;
+    pub fn parse_java_structure(&self, path: &Path) -> Result<JavaStructurePreview> {
+        let mut parser = JavaStructureParser::new()?;
         parser.parse_file(path)
     }
 

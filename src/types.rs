@@ -41,23 +41,6 @@ pub struct MavenDependency {
     pub optional: bool,
 }
 
-/// A single Java source file (.java) and everything inside it
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JavaFile {
-    /// Full path to the .java file
-    pub path: PathBuf,
-    /// Which Maven module this belongs to
-    pub module: Option<String>,
-    /// Java package name (e.g., "com.example.models")
-    pub package: String,
-    /// What other classes this file imports
-    pub imports: Vec<String>,
-    /// Classes, interfaces, etc. found in this file
-    pub declarations: Vec<Declaration>,
-    /// Hash of the source code (for change detection)
-    pub source_hash: String,
-}
-
 /// A class, interface, enum, etc. found in Java code
 /// This is like "I found a class called UserService"
 #[derive(Debug, Clone, Serialize, Deserialize)]

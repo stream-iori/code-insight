@@ -5,7 +5,7 @@ use tempfile::tempdir;
 
 use code_insight::{
     maven::{MavenParser, DependencyAnalyzer},
-    parser::{FileParser, JavaParser},
+    parser::{FileParser, JavaStructureParser},
     indexer::IndexManager,
     query::QueryEngine,
     types::{DeclarationKind, SearchKind, SearchFilter},
@@ -40,11 +40,11 @@ async fn test_full_workflow() -> Result<()> {
         std::fs::remove_dir_all(&index_path)?;
     }
     let index_manager = IndexManager::new(&index_path)?;
-    let mut java_parser = JavaParser::new()?;
+    let mut java_parser = JavaStructureParser::new()?;
     
     for file_path in &java_files {
-        let java_file = java_parser.parse_file(file_path.as_path())?;
-        index_manager.index_java_file(&java_file).await?;
+        let java_structure = java_parser.parse_structure(file_path.as_path())?;
+        index_manager.index_java_file(&java_structure).await?;
     }
     index_manager.optimize().await?;
     index_manager.close().await?;
@@ -128,8 +128,8 @@ async fn test_error_handling() -> Result<()> {
     let invalid_java = project_root.join("Invalid.java");
     fs::write(&invalid_java, "invalid java syntax {")?;
 
-    let mut java_parser = JavaParser::new()?;
-    let result = java_parser.parse_file(invalid_java.as_path());
+    let mut java_parser = JavaStructureParser::new()?;
+    let result = java_parser.parse_structure(invalid_java.as_path());
     
     // Should handle parse errors gracefully - tree-sitter is forgiving, may not return error
     let _ = result;
@@ -151,16 +151,16 @@ async fn test_error_handling() -> Result<()> {
     let mut processed = 0;
     for file_path in java_files {
         println!("Attempting to parse: {}", file_path.display());
-        match java_parser.parse_file(file_path.as_path()) {
-            Ok(java_file) => {
+        match java_parser.parse_structure(file_path.as_path()) {
+            Ok(java_structure) => {
                 println!("Successfully parsed {}:", file_path.display());
-                println!("  Package: '{}'", java_file.package);
-                println!("  Imports: {:?}", java_file.imports);
-                println!("  Declarations: {}", java_file.declarations.len());
-                for decl in &java_file.declarations {
-                    println!("    - {}: {:?}", decl.name, decl.kind);
+                println!("  Package: '{}'", java_structure.package.as_deref().unwrap_or(""));
+                println!("  Imports: {:?}", java_structure.imports);
+                println!("  Classes: {}", java_structure.top_level_classes.len());
+                for class in &java_structure.top_level_classes {
+                    println!("    - {}: {:?}", class.name, class.kind);
                 }
-                index_manager.index_java_file(&java_file).await?;
+                index_manager.index_java_file(&java_structure).await?;
                 processed += 1;
             }
             Err(e) => {
@@ -189,7 +189,7 @@ async fn test_filtering() -> Result<()> {
     {
         let index_manager = IndexManager::new(&index_path)?;
         let file_parser = FileParser::new()?;
-        let mut java_parser = JavaParser::new()?;
+        let mut java_parser = JavaStructureParser::new()?;
 
         let java_files = file_parser.find_source_files(project_root)?
             .into_iter()
@@ -197,8 +197,8 @@ async fn test_filtering() -> Result<()> {
             .collect::<Vec<_>>();
 
         for file_path in &java_files {
-            let java_file = java_parser.parse_file(file_path.as_path())?;
-            index_manager.index_java_file(&java_file).await?;
+            let java_structure = java_parser.parse_structure(file_path.as_path())?;
+            index_manager.index_java_file(&java_structure).await?;
         }
         index_manager.optimize().await?;
     }

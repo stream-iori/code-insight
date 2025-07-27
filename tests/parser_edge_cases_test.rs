@@ -4,7 +4,7 @@ use std::fs;
 use tempfile::tempdir;
 
 use code_insight::{
-    parser::{JavaParser, XmlParser, PropertiesParser},
+    parser::{JavaStructureParser, XmlParser, PropertiesParser},
 };
 
 #[tokio::test]
@@ -24,12 +24,12 @@ async fn test_parser_edge_cases() -> Result<()> {
 }
 
 fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
-    let mut parser = JavaParser::new()?;
+    let mut parser = JavaStructureParser::new()?;
     
     // Test 1: Empty Java file
     let empty_java = test_dir.join("Empty.java");
     fs::write(&empty_java, "")?;
-    let result = parser.parse_file(&empty_java);
+    let result = parser.parse_structure(&empty_java);
     assert!(result.is_ok(), "Empty file should be handled gracefully");
     
     // Test 2: Java file with only comments
@@ -41,13 +41,13 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         /** Javadoc comment */
         "#
     )?;
-    let result = parser.parse_file(&comments_only);
+    let result = parser.parse_structure(&comments_only);
     assert!(result.is_ok(), "Comments-only file should be handled");
     
     // Test 3: Java file with invalid syntax
     let invalid_syntax = test_dir.join("Invalid.java");
     fs::write(&invalid_syntax, "public class { }")?;
-    let result = parser.parse_file(&invalid_syntax);
+    let result = parser.parse_structure(&invalid_syntax);
     // Note: tree-sitter is quite forgiving, so invalid syntax might not always return error
     let _ = result; // Just check it doesn't panic
     
@@ -66,10 +66,10 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&unicode_class);
+    let result = parser.parse_structure(&unicode_class);
     assert!(result.is_ok(), "Unicode characters should be handled");
-    let java_file = result?;
-    assert_eq!(java_file.declarations[0].name, "Пользователь");
+    let java_structure = result?;
+    assert_eq!(java_structure.top_level_classes[0].name, "Пользователь");
     
     // Test 5: Java file with deeply nested generics
     let nested_generics = test_dir.join("NestedGenerics.java");
@@ -87,7 +87,7 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&nested_generics);
+    let result = parser.parse_structure(&nested_generics);
     assert!(result.is_ok(), "Deeply nested generics should be handled");
     
     // Test 6: Java file with annotations having complex values
@@ -114,7 +114,7 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&complex_annotations);
+    let result = parser.parse_structure(&complex_annotations);
     assert!(result.is_ok(), "Complex annotations should be handled");
     
     // Test 7: Java file with lambda expressions and method references
@@ -139,7 +139,7 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&modern_features);
+    let result = parser.parse_structure(&modern_features);
     assert!(result.is_ok(), "Modern Java features should be handled");
     
     // Test 8: Java file with varargs
@@ -159,7 +159,7 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&varargs_class);
+    let result = parser.parse_structure(&varargs_class);
     assert!(result.is_ok(), "Varargs should be handled");
     
     // Test 9: Java file with inner classes and enums
@@ -199,10 +199,10 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&inner_classes);
+    let result = parser.parse_structure(&inner_classes);
     assert!(result.is_ok(), "Inner classes and enums should be handled");
     // Tree-sitter might parse differently, just check it doesn't fail
-    let _ = result?.declarations.len();
+    let _ = result?.top_level_classes.len();
     
     // Test 10: Java file with records (Java 14+)
     let record_class = test_dir.join("RecordClass.java");
@@ -221,14 +221,14 @@ fn test_java_parser_edge_cases(test_dir: &Path) -> Result<()> {
         }
         "#
     )?;
-    let result = parser.parse_file(&record_class);
+    let result = parser.parse_structure(&record_class);
     assert!(result.is_ok(), "Java records should be handled");
     
     Ok(())
 }
 
 fn test_xml_parser_edge_cases(test_dir: &Path) -> Result<()> {
-    let parser = XmlParser;
+    let mut parser = XmlParser::new()?;
     
     // Test 1: Empty XML file
     let empty_xml = test_dir.join("empty.xml");
@@ -340,7 +340,7 @@ fn test_xml_parser_edge_cases(test_dir: &Path) -> Result<()> {
 }
 
 fn test_properties_parser_edge_cases(test_dir: &Path) -> Result<()> {
-    let parser = PropertiesParser;
+    let mut parser = PropertiesParser::new()?;
     
     // Test 1: Empty properties file
     let empty_props = test_dir.join("empty.properties");

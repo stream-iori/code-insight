@@ -6,9 +6,8 @@ use tokio::sync::{Semaphore, mpsc};
 use rayon::prelude::*;
 
 use crate::{
-    parser::{FileParser, JavaParser},
+    parser::{FileParser, JavaStructurePreview, JavaStructureParser},
     indexer::IndexManager,
-    types::JavaFile,
 };
 
 #[derive(Clone)]
@@ -39,7 +38,7 @@ impl AsyncProcessor {
             .collect::<Vec<_>>();
 
         let stats = Arc::new(std::sync::Mutex::new(ProcessingStats::new()));
-        let (tx, mut rx): (mpsc::Sender<Result<JavaFile>>, mpsc::Receiver<Result<JavaFile>>) = mpsc::channel(1000);
+        let (tx, mut rx): (mpsc::Sender<Result<JavaStructurePreview>>, mpsc::Receiver<Result<JavaStructurePreview>>) = mpsc::channel(1000);
 
         // Spawn async tasks for file processing
         let mut join_set = JoinSet::new();
@@ -105,15 +104,15 @@ impl AsyncProcessor {
         Ok(final_stats)
     }
 
-    async fn process_single_file(file_path: &PathBuf) -> Result<JavaFile> {
-        let mut java_parser = JavaParser::new()?;
-        java_parser.parse_file(file_path)
+    async fn process_single_file(file_path: &PathBuf) -> Result<JavaStructurePreview> {
+        let mut java_parser = JavaStructureParser::new()?;
+        java_parser.parse_structure(file_path)
     }
 
     pub async fn process_files_parallel(
         &self,
         files: Vec<PathBuf>,
-    ) -> Result<Vec<Result<JavaFile>>> {
+    ) -> Result<Vec<Result<JavaStructurePreview>>> {
         let semaphore = Arc::new(Semaphore::new(self.max_concurrent_parsers));
         let mut join_set = JoinSet::new();
 
@@ -137,12 +136,12 @@ impl AsyncProcessor {
     pub fn process_files_rayon(
         &self,
         files: Vec<PathBuf>,
-    ) -> Result<Vec<Result<JavaFile>>> {
-        let results: Vec<Result<JavaFile>> = files
+    ) -> Result<Vec<Result<JavaStructurePreview>>> {
+        let results: Vec<Result<JavaStructurePreview>> = files
             .into_par_iter()
             .map(|file_path| {
-                let mut java_parser = JavaParser::new()?;
-                java_parser.parse_file(&file_path)
+                let mut java_parser = JavaStructureParser::new()?;
+                java_parser.parse_structure(&file_path)
             })
             .collect();
 
@@ -162,7 +161,7 @@ impl AsyncProcessor {
             .collect::<Vec<_>>();
 
         let stats = Arc::new(std::sync::Mutex::new(ProcessingStats::new()));
-        let (tx, rx): (mpsc::Sender<Result<JavaFile>>, mpsc::Receiver<Result<JavaFile>>) = mpsc::channel(batch_size);
+        let (tx, rx): (mpsc::Sender<Result<JavaStructurePreview>>, mpsc::Receiver<Result<JavaStructurePreview>>) = mpsc::channel(batch_size);
 
         let producer = tokio::spawn({
             let java_files = java_files.clone();
@@ -190,8 +189,8 @@ impl AsyncProcessor {
                 
                 while let Some(result) = rx.recv().await {
                     match result {
-                        Ok(java_file) => {
-                            if let Err(e) = index_manager.index_java_file(&java_file).await {
+                        Ok(java_structure) => {
+                            if let Err(e) = index_manager.index_java_file(&java_structure).await {
                                 eprintln!("Error indexing: {}", e);
                                 stats.lock().unwrap().increment_errors();
                             } else {
