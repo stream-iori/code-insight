@@ -167,12 +167,6 @@ impl IndexManager {
                     name: a.name.clone(),
                     values: a.values.clone(),
                 }).collect(),
-                range: crate::types::SourceRange {
-                    start_line: f.range.start_line,
-                    start_column: f.range.start_column,
-                    end_line: f.range.end_line,
-                    end_column: f.range.end_column,
-                },
             }).collect(),
             methods: class.methods.iter().map(|m| Method {
                 name: m.name.clone(),

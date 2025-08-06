@@ -3,7 +3,7 @@ name = "code-insight"
 version = "0.1.0"
 edition = "2024"
 authors = ["Code Insight Team"]
-description = "A tool for parsing and analyzing Maven Java projects"
+description = "A tool for parsing and analyzing Java projects"
 license = "MIT"
 
 [[bin]]
@@ -37,11 +37,7 @@ walkdir = "2.4"
 ignore = "0.4"
 pathdiff = "0.2"
 
-# XML parsing
-quick-xml = { version = "0.31", features = ["serialize"] }
 
-# Graph visualization
-mermaid = "0.2"
 
 # Async runtime and utilities
 futures = "0.3"

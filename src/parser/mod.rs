@@ -1,10 +1,6 @@
 mod java_structure;
-mod properties;
-mod xml;
 
 pub use java_structure::*;
-pub use properties::*;
-pub use xml::*;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -15,8 +11,6 @@ pub struct FileParser;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileSuffix {
     Java,
-    Xml,
-    Property,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,8 +63,7 @@ impl FileParser {
             if entry.file_type().is_file() {
                 let path = entry.path();
                 match path.extension().and_then(|ext| ext.to_str()) {
-                    //TODO: should enum file type instead of string
-                    Some("java") | Some("xml") | Some("properties") => {
+                    Some("java") => {
                         files.push(path.to_path_buf());
                     }
                     _ => {}

@@ -4,7 +4,6 @@ use std::fs;
 use tempfile::tempdir;
 
 use code_insight::{
-    maven::{MavenParser, DependencyAnalyzer},
     parser::{FileParser, JavaStructureParser},
     indexer::IndexManager,
     query::QueryEngine,
@@ -17,14 +16,10 @@ async fn test_full_workflow() -> Result<()> {
     let project_root = dir.path();
     let index_path = dir.path().join("index_full_workflow");
 
-    // Create test Maven project structure
+    // Create test Java project structure
     create_test_project(project_root)?;
 
-    // 1. Parse Maven project
-    let maven_parser = MavenParser;
-    let modules = maven_parser.find_maven_modules(project_root)?;
-    assert_eq!(modules.len(), 1);
-    assert_eq!(modules[0].artifact_id, "test-app");
+    // 1. Parse Java project - skipping Maven parsing as it was removed
 
     // 2. Parse Java files
     let file_parser = FileParser::new()?;
@@ -96,27 +91,6 @@ async fn test_full_workflow() -> Result<()> {
     Ok(())
 }
 
-#[tokio::test]
-async fn test_dependency_analysis() -> Result<()> {
-    let dir = tempdir()?;
-    let project_root = dir.path();
-
-    create_test_project(project_root)?;
-
-    let maven_parser = MavenParser;
-    let dependency_analyzer = DependencyAnalyzer;
-
-    let modules = maven_parser.find_maven_modules(project_root)?;
-    let graph = dependency_analyzer.analyze_dependencies(&modules)?;
-
-    assert!(graph.nodes.len() >= 1);
-    assert!(!graph.edges.is_empty());
-
-    let mermaid = graph.to_mermaid();
-    assert!(mermaid.contains("com.example:test-app:1.0.0"));
-
-    Ok(())
-}
 
 #[tokio::test]
 async fn test_error_handling() -> Result<()> {
@@ -230,30 +204,6 @@ async fn test_filtering() -> Result<()> {
 }
 
 fn create_test_project(project_root: &Path) -> Result<()> {
-    // Create pom.xml
-    let pom_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
-<project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
-    <modelVersion>4.0.0</modelVersion>
-    <groupId>com.example</groupId>
-    <artifactId>test-app</artifactId>
-    <version>1.0.0</version>
-    <properties>
-        <maven.compiler.source>11</maven.compiler.source>
-        <maven.compiler.target>11</maven.compiler.target>
-    </properties>
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework</groupId>
-            <artifactId>spring-core</artifactId>
-            <version>5.3.0</version>
-        </dependency>
-    </dependencies>
-</project>
-"#;
-    fs::write(project_root.join("pom.xml"), pom_xml)?;
 
     // Create source directory structure
     let src_dir = project_root.join("src/main/java/com/example");

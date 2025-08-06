@@ -50,7 +50,6 @@ pub struct FieldStructure {
     pub type_name: String,
     pub modifiers: Vec<String>,
     pub annotations: Vec<Annotation>,
-    pub range: SourceRange,
     pub documentation: Option<String>,
 }
 
@@ -329,43 +328,50 @@ impl JavaStructureParser {
         let mut annotations = Vec::new();
         let mut cursor = node.walk();
 
-        // Check both direct children and modifiers children for annotations
+        // Collect annotations from all relevant nodes
         for child in node.children(&mut cursor) {
-            let kind = child.kind();
-            match kind {
+            let child_kind = child.kind();
+
+            // Collect from different node types based on their kind
+            let targets = match child_kind {
                 "modifiers" => {
-                    // Look for annotations within the modifiers
+                    // For modifiers, check all children
+                    let mut targets = Vec::new();
                     let mut modifier_cursor = child.walk();
                     for modifier in child.children(&mut modifier_cursor) {
-                        let modifier_kind = modifier.kind();
-                        if modifier_kind == "annotation" || modifier_kind == "marker_annotation" {
-                            if let Some(annotation) = self.parse_annotation(&modifier, content) {
-                                annotations.push(annotation);
-                            }
+                        let kind = modifier.kind();
+                        if kind == "annotation" || kind == "marker_annotation" {
+                            targets.push(modifier);
                         }
                     }
+                    targets
                 }
                 "annotation" | "marker_annotation" => {
-                    // Direct annotation child
-                    if let Some(annotation) = self.parse_annotation(&child, content) {
-                        annotations.push(annotation);
-                    }
+                    // Direct annotation
+                    vec![child]
                 }
                 _ => {
-                    // Also check if any child is an annotation
+                    // For other nodes, check children for annotations
+                    let mut targets = Vec::new();
                     let mut child_cursor = child.walk();
                     for grandchild in child.children(&mut child_cursor) {
-                        let grandchild_kind = grandchild.kind();
-                        if grandchild_kind == "annotation" || grandchild_kind == "marker_annotation"
-                        {
-                            if let Some(annotation) = self.parse_annotation(&grandchild, content) {
-                                annotations.push(annotation);
-                            }
+                        let kind = grandchild.kind();
+                        if kind == "annotation" || kind == "marker_annotation" {
+                            targets.push(grandchild);
                         }
                     }
+                    targets
+                }
+            };
+
+            // Parse all collected annotation nodes
+            for target in targets {
+                if let Some(annotation) = self.parse_annotation(&target, content) {
+                    annotations.push(annotation);
                 }
             }
         }
+
         annotations
     }
 
@@ -574,7 +580,6 @@ impl JavaStructureParser {
             type_name,
             modifiers,
             annotations,
-            range,
             documentation,
         }))
     }
@@ -854,6 +859,8 @@ mod tests {
         std::fs::write(&java_path, java_content).unwrap();
 
         let structure = parser.parse_structure(&java_path).unwrap();
+        let json_string = serde_json::to_string_pretty(&structure).unwrap();
+        println!("Serialized to JSON string:\n{}\n", json_string);
 
         assert_eq!(structure.top_level_classes.len(), 1);
         let outer = &structure.top_level_classes[0];

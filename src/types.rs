@@ -1,45 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-/// A Maven module (project) parsed from pom.xml
-/// Think of this as a "project definition" that contains:
-/// - group_id: like a company domain (e.g., "com.example")
-/// - artifact_id: the project name (e.g., "my-app")
-/// - version: the project version (e.g., "1.0.0")
-/// - dependencies: what other projects this needs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MavenModule {
-    /// Company/organization identifier (e.g., "com.example")
-    pub group_id: String,
-    /// Project name (e.g., "my-app")
-    pub artifact_id: String,
-    /// Version number (e.g., "1.0.0")
-    pub version: String,
-    /// Type of package (jar, war, etc.)
-    pub packaging: Option<String>,
-    /// Where this module is located on disk
-    pub path: PathBuf,
-    /// Other projects this module depends on
-    pub dependencies: Vec<MavenDependency>,
-    /// Sub-modules within this project
-    pub submodules: Vec<String>,
-}
-
-/// A single Maven dependency (library your code uses)
-/// Like "I need Spring Framework version 5.3.0"
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MavenDependency {
-    /// Library owner's identifier (e.g., "org.springframework")
-    pub group_id: String,
-    /// Library name (e.g., "spring-core")
-    pub artifact_id: String,
-    /// Library version (e.g., "5.3.0")
-    pub version: String,
-    /// When to use this (compile, test, runtime, etc.)
-    pub scope: Option<String>,
-    /// Whether this dependency is optional
-    pub optional: bool,
-}
 
 /// A class, interface, enum, etc. found in Java code
 /// This is like "I found a class called UserService"
@@ -97,8 +58,6 @@ pub struct Field {
     pub modifiers: Vec<String>,
     /// Annotations like @NotNull, @Size(min=3)
     pub annotations: Vec<Annotation>,
-    /// Where this field appears in the file
-    pub range: SourceRange,
 }
 
 /// A method (function) inside a Java class
