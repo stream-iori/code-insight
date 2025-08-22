@@ -326,25 +326,6 @@ impl ProgressMonitor {
         self.start_time.elapsed()
     }
 
-    pub fn print_progress(&self) {
-        let processed = self.processed_files.load(std::sync::atomic::Ordering::Relaxed);
-        let errors = self.error_files.load(std::sync::atomic::Ordering::Relaxed);
-        let progress = self.progress();
-        let elapsed = self.elapsed();
-        let rate = if elapsed.as_secs() > 0 {
-            processed as f64 / elapsed.as_secs_f64()
-        } else {
-            0.0
-        };
-
-        println!("Progress: {:.1}% ({}/{} files, {} errors, {:.2} files/sec)",
-            progress * 100.0,
-            processed,
-            self.total_files,
-            errors,
-            rate
-        );
-    }
 }
 
 #[cfg(test)]

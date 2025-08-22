@@ -1,18 +1,17 @@
-use anyhow::{Result};
+use crate::parser::JavaStructurePreview;
+use crate::types::{
+    Declaration, DeclarationKind, Field, Method, SearchFilter, SearchQuery, SearchResult,
+};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tantivy::{
+    Index, IndexReader, IndexWriter, Searcher, TantivyDocument, Term,
     collector::TopDocs,
-    query::{Query, QueryParser, FuzzyTermQuery},
+    query::{FuzzyTermQuery, Query, QueryParser},
     schema::*,
-    TantivyDocument,
-    Index, IndexReader, IndexWriter, Searcher, Term,
 };
 use tokio::sync::RwLock;
-use crate::parser::JavaStructurePreview;
-use crate::types::{
-    Declaration, DeclarationKind, Field, Method, SearchQuery, SearchResult, SearchFilter,
-};
 
 pub struct IndexManager {
     index: Index,
@@ -24,10 +23,10 @@ pub struct IndexManager {
 impl IndexManager {
     pub fn new(index_path: &Path) -> Result<Self> {
         let schema = Self::create_schema()?;
-        
+
         // Create directories if they don't exist
         std::fs::create_dir_all(index_path)?;
-        
+
         // Try to open existing index, create new one if it doesn't exist
         let index = match Index::open_in_dir(index_path) {
             Ok(existing_index) => {
@@ -40,12 +39,10 @@ impl IndexManager {
             }
         };
 
-        let reader = index
-            .reader_builder()
-            .try_into()?;
+        let reader = index.reader_builder().try_into()?;
 
         let writer = Arc::new(RwLock::new(
-            index.writer(50_000_000)? // 50MB heap
+            index.writer(50_000_000)?, // 50MB heap
         ));
 
         Ok(Self {
@@ -95,23 +92,30 @@ impl IndexManager {
 
     pub async fn index_java_file(&self, java_structure: &JavaStructurePreview) -> Result<()> {
         let mut writer = self.writer.write().await;
-        
+
         // Convert JavaStructurePreview to declarations and index them
         let declarations = self.convert_structure_to_declarations(java_structure);
-        
-        println!("DEBUG: Indexing {} declarations from {}", declarations.len(), java_structure.file_meta.path.display());
+
+        println!(
+            "DEBUG: Indexing {} declarations from {}",
+            declarations.len(),
+            java_structure.file_meta.path.display()
+        );
         for declaration in &declarations {
             let doc = self.create_document(declaration, java_structure)?;
             writer.add_document(doc)?;
-            println!("DEBUG: Added document for {}: {:?}", declaration.name, declaration.kind);
+            println!(
+                "DEBUG: Added document for {}: {:?}",
+                declaration.name, declaration.kind
+            );
         }
 
         writer.commit()?;
         self.reader.reload()?;
-        
+
         let (num_docs, _) = self.stats()?;
         println!("DEBUG: After indexing, index has {} documents", num_docs);
-        
+
         Ok(())
     }
 
@@ -121,19 +125,31 @@ impl IndexManager {
         Ok(())
     }
 
-    fn convert_structure_to_declarations(&self, java_structure: &JavaStructurePreview) -> Vec<Declaration> {
+    fn convert_structure_to_declarations(
+        &self,
+        java_structure: &JavaStructurePreview,
+    ) -> Vec<Declaration> {
         let mut declarations = Vec::new();
         let package = java_structure.package.as_deref().unwrap_or("");
-        
+
         // Convert top-level classes
         for class in &java_structure.top_level_classes {
-            declarations.push(self.class_to_declaration(class, package, &java_structure.file_meta.path));
+            declarations.push(self.class_to_declaration(
+                class,
+                package,
+                &java_structure.file_meta.path,
+            ));
         }
-        
+
         declarations
     }
 
-    fn class_to_declaration(&self, class: &crate::parser::ClassStructure, package: &str, file_path: &Path) -> Declaration {
+    fn class_to_declaration(
+        &self,
+        class: &crate::parser::ClassStructure,
+        package: &str,
+        file_path: &Path,
+    ) -> Declaration {
         let fqn = if package.is_empty() {
             class.name.clone()
         } else {
@@ -152,46 +168,74 @@ impl IndexManager {
             name: class.name.clone(),
             kind,
             modifiers: class.modifiers.clone(),
-            annotations: class.annotations.iter().map(|a| crate::types::Annotation {
-                name: a.name.clone(),
-                values: a.values.clone(),
-            }).collect(),
+            annotations: class
+                .annotations
+                .iter()
+                .map(|a| crate::types::Annotation {
+                    name: a.name.clone(),
+                    values: a.values.clone(),
+                })
+                .collect(),
             signature: format!("{} {}", class.modifiers.join(" "), class.name),
             extends: class.extends.clone(),
             implements: class.implements.clone(),
-            fields: class.fields.iter().map(|f| Field {
-                name: f.name.clone(),
-                type_name: f.type_name.clone(),
-                modifiers: f.modifiers.clone(),
-                annotations: f.annotations.iter().map(|a| crate::types::Annotation {
-                    name: a.name.clone(),
-                    values: a.values.clone(),
-                }).collect(),
-            }).collect(),
-            methods: class.methods.iter().map(|m| Method {
-                name: m.name.clone(),
-                return_type: m.return_type.clone(),
-                parameters: m.parameters.iter().map(|p| crate::types::Parameter {
-                    name: p.name.clone(),
-                    type_name: p.type_name.clone(),
-                    annotations: p.annotations.iter().map(|a| crate::types::Annotation {
-                        name: a.name.clone(),
-                        values: a.values.clone(),
-                    }).collect(),
-                }).collect(),
-                modifiers: m.modifiers.clone(),
-                annotations: m.annotations.iter().map(|a| crate::types::Annotation {
-                    name: a.name.clone(),
-                    values: a.values.clone(),
-                }).collect(),
-                range: crate::types::SourceRange {
-                    start_line: m.range.start_line,
-                    start_column: m.range.start_column,
-                    end_line: m.range.end_line,
-                    end_column: m.range.end_column,
-                },
-                body_range: None,
-            }).collect(),
+            fields: class
+                .fields
+                .iter()
+                .map(|f| Field {
+                    name: f.name.clone(),
+                    type_name: f.type_name.clone(),
+                    modifiers: f.modifiers.clone(),
+                    annotations: f
+                        .annotations
+                        .iter()
+                        .map(|a| crate::types::Annotation {
+                            name: a.name.clone(),
+                            values: a.values.clone(),
+                        })
+                        .collect(),
+                })
+                .collect(),
+            methods: class
+                .methods
+                .iter()
+                .map(|m| Method {
+                    name: m.name.clone(),
+                    return_type: m.return_type.clone(),
+                    parameters: m
+                        .parameters
+                        .iter()
+                        .map(|p| crate::types::Parameter {
+                            name: p.name.clone(),
+                            type_name: p.type_name.clone(),
+                            annotations: p
+                                .annotations
+                                .iter()
+                                .map(|a| crate::types::Annotation {
+                                    name: a.name.clone(),
+                                    values: a.values.clone(),
+                                })
+                                .collect(),
+                        })
+                        .collect(),
+                    modifiers: m.modifiers.clone(),
+                    annotations: m
+                        .annotations
+                        .iter()
+                        .map(|a| crate::types::Annotation {
+                            name: a.name.clone(),
+                            values: a.values.clone(),
+                        })
+                        .collect(),
+                    range: crate::types::SourceRange {
+                        start_line: m.range.start_line,
+                        start_column: m.range.start_column,
+                        end_line: m.range.end_line,
+                        end_column: m.range.end_column,
+                    },
+                    body_range: None,
+                })
+                .collect(),
             range: crate::types::SourceRange {
                 start_line: class.range.start_line,
                 start_column: class.range.start_column,
@@ -202,9 +246,13 @@ impl IndexManager {
         }
     }
 
-    fn create_document(&self, declaration: &Declaration, java_structure: &JavaStructurePreview) -> Result<TantivyDocument> {
+    fn create_document(
+        &self,
+        declaration: &Declaration,
+        java_structure: &JavaStructurePreview,
+    ) -> Result<TantivyDocument> {
         let schema = &self.schema;
-        
+
         let name_field = schema.get_field("name").unwrap();
         let package_field = schema.get_field("package").unwrap();
         let file_path_field = schema.get_field("file_path").unwrap();
@@ -224,20 +272,27 @@ impl IndexManager {
         let source_hash_field = schema.get_field("source_hash").unwrap();
 
         let mut doc = TantivyDocument::new();
-        
+
         doc.add_text(name_field, &declaration.name);
-        doc.add_text(package_field, &java_structure.package.as_deref().unwrap_or(""));
-        doc.add_text(file_path_field, java_structure.file_meta.path.to_string_lossy().as_ref());
+        doc.add_text(
+            package_field,
+            &java_structure.package.as_deref().unwrap_or(""),
+        );
+        doc.add_text(
+            file_path_field,
+            java_structure.file_meta.path.to_string_lossy().as_ref(),
+        );
         doc.add_text(signature_field, &declaration.signature);
-        
+
         if let Some(documentation) = &declaration.documentation {
             doc.add_text(documentation_field, documentation);
         }
 
         doc.add_text(kind_field, format!("{:?}", declaration.kind));
         doc.add_text(modifiers_field, declaration.modifiers.join(" "));
-        
-        let annotations: Vec<String> = declaration.annotations
+
+        let annotations: Vec<String> = declaration
+            .annotations
             .iter()
             .map(|a| a.name.clone())
             .collect();
@@ -267,7 +322,7 @@ impl IndexManager {
 
     pub async fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         let searcher = self.reader.searcher();
-        
+
         // Handle kind filter specifically by searching the kind field
         if let Some(SearchFilter::Kind(kind)) = query.filters.first() {
             let kind_field = self.schema.get_field("kind").unwrap();
@@ -279,12 +334,13 @@ impl IndexManager {
                 DeclarationKind::Annotation => "Annotation",
             };
             let term = Term::from_field_text(kind_field, kind_str);
-            let query_obj: Box<dyn Query> = Box::new(tantivy::query::TermQuery::new(term, tantivy::schema::IndexRecordOption::Basic));
-            
-            let top_docs = searcher.search(
-                &query_obj,
-                &TopDocs::with_limit(query.limit.unwrap_or(100)),
-            )?;
+            let query_obj: Box<dyn Query> = Box::new(tantivy::query::TermQuery::new(
+                term,
+                tantivy::schema::IndexRecordOption::Basic,
+            ));
+
+            let top_docs =
+                searcher.search(&query_obj, &TopDocs::with_limit(query.limit.unwrap_or(100)))?;
 
             let mut results = Vec::new();
             for (_score, doc_address) in top_docs {
@@ -292,18 +348,16 @@ impl IndexManager {
                 let result = self.document_to_result(&doc, searcher.clone())?;
                 results.push(result);
             }
-            
+
             return Ok(results);
         }
-        
+
         let query_obj = self.build_query(query)?;
-        let top_docs = searcher.search(
-            &query_obj,
-            &TopDocs::with_limit(query.limit.unwrap_or(100)),
-        )?;
+        let top_docs =
+            searcher.search(&query_obj, &TopDocs::with_limit(query.limit.unwrap_or(100)))?;
 
         let mut results = Vec::new();
-        
+
         for (_score, doc_address) in top_docs {
             let doc = searcher.doc(doc_address)?;
             let result = self.document_to_result(&doc, searcher.clone())?;
@@ -315,7 +369,7 @@ impl IndexManager {
 
     fn build_query(&self, search: &SearchQuery) -> Result<Box<dyn Query>> {
         let schema = &self.schema;
-        
+
         match search.kind {
             crate::types::SearchKind::Exact => {
                 if search.query == "*" {
@@ -344,38 +398,43 @@ impl IndexManager {
                 Ok(Box::new(fuzzy_query))
             }
             crate::types::SearchKind::Regex => {
-                let query_parser = QueryParser::for_index(
-                    &self.index,
-                    vec![schema.get_field("name").unwrap()],
-                );
+                let query_parser =
+                    QueryParser::for_index(&self.index, vec![schema.get_field("name").unwrap()]);
                 Ok(query_parser.parse_query(&search.query)?)
             }
         }
     }
 
-    fn document_to_result(&self, doc: &TantivyDocument, _searcher: Searcher) -> Result<SearchResult> {
+    fn document_to_result(
+        &self,
+        doc: &TantivyDocument,
+        _searcher: Searcher,
+    ) -> Result<SearchResult> {
         let schema = &self.schema;
-        
+
         let name_field = schema.get_field("name").unwrap();
         let file_path_field = schema.get_field("file_path").unwrap();
         let signature_field = schema.get_field("signature").unwrap();
         let _start_line_field = schema.get_field("start_line").unwrap();
         let _end_line_field = schema.get_field("end_line").unwrap();
 
-        let name = doc.get_first(name_field)
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        
-        let file_path = doc.get_first(file_path_field)
+        let name = doc
+            .get_first(name_field)
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let signature = doc.get_first(signature_field)
+        let file_path = doc
+            .get_first(file_path_field)
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        let signature = doc
+            .get_first(signature_field)
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
         let declaration = self.create_declaration_from_doc(doc)?;
-        
+
         // Create a simple preview
         let preview = format!("{}: {}", name, signature);
 
@@ -389,7 +448,7 @@ impl IndexManager {
 
     fn create_declaration_from_doc(&self, doc: &TantivyDocument) -> Result<Declaration> {
         let schema = &self.schema;
-        
+
         let get_text = |field_name: &str| {
             let field = schema.get_field(field_name).unwrap();
             doc.get_first(field)
@@ -400,9 +459,7 @@ impl IndexManager {
 
         let get_u64 = |field_name: &str| {
             let field = schema.get_field(field_name).unwrap();
-            doc.get_first(field)
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as usize
+            doc.get_first(field).and_then(|v| v.as_u64()).unwrap_or(0) as usize
         };
 
         let name = get_text("name");
@@ -422,18 +479,24 @@ impl IndexManager {
         // Read fields and methods from JSON
         let fields_json = get_text("fields");
         let methods_json = get_text("methods");
-        
+
         let fields: Vec<Field> = serde_json::from_str(&fields_json).unwrap_or_default();
         let methods: Vec<Method> = serde_json::from_str(&methods_json).unwrap_or_default();
 
         Ok(Declaration {
             name,
             kind,
-            modifiers: get_text("modifiers").split_whitespace().map(String::from).collect(),
+            modifiers: get_text("modifiers")
+                .split_whitespace()
+                .map(String::from)
+                .collect(),
             annotations: vec![], // TODO: Parse annotations
             signature,
             extends: Some(get_text("extends")).filter(|s| !s.is_empty()),
-            implements: get_text("implements").split_whitespace().map(String::from).collect(),
+            implements: get_text("implements")
+                .split_whitespace()
+                .map(String::from)
+                .collect(),
             fields,
             methods,
             range: crate::types::SourceRange {
@@ -448,13 +511,13 @@ impl IndexManager {
 
     pub async fn delete_by_hash(&self, source_hash: &str) -> Result<()> {
         let mut writer = self.writer.write().await;
-        
+
         let source_hash_field = self.schema.get_field("source_hash").unwrap();
         let term = Term::from_field_text(source_hash_field, source_hash);
-        
+
         writer.delete_term(term);
         writer.commit()?;
-        
+
         Ok(())
     }
 
@@ -467,12 +530,15 @@ impl IndexManager {
     pub fn stats(&self) -> Result<(usize, usize)> {
         let searcher = self.reader.searcher();
         let num_docs = searcher.num_docs() as usize;
-        
+
         // Get segment info
         let segment_metas = self.index.searchable_segment_metas()?;
         let num_segments = segment_metas.len();
-        
-        println!("DEBUG: Index has {} documents in {} segments", num_docs, num_segments);
+
+        println!(
+            "DEBUG: Index has {} documents in {} segments",
+            num_docs, num_segments
+        );
         Ok((num_docs, num_segments))
     }
 }
@@ -480,17 +546,17 @@ impl IndexManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
     use crate::types::{DeclarationKind, SourceRange};
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn test_index_creation() {
         let dir = tempdir().unwrap();
         let index_path = dir.path().join("test_index");
-        
+
         let manager = IndexManager::new(&index_path).unwrap();
         let (num_docs, _) = manager.stats().unwrap();
-        
+
         assert_eq!(num_docs, 0);
     }
 
@@ -498,9 +564,9 @@ mod tests {
     async fn test_index_and_search() {
         let dir = tempdir().unwrap();
         let index_path = dir.path().join("test_index");
-        
+
         let manager = IndexManager::new(&index_path).unwrap();
-        
+
         let java_structure = crate::parser::JavaStructurePreview {
             file_meta: crate::parser::FileMeta {
                 path: PathBuf::from("/test/UserService.java"),
@@ -510,36 +576,34 @@ mod tests {
             },
             package: Some("com.example".to_string()),
             imports: vec![],
-            top_level_classes: vec![
-                crate::parser::ClassStructure {
-                    name: "UserService".to_string(),
-                    fqn: "com.example.UserService".to_string(),
-                    kind: crate::parser::ClassKind::Class,
-                    modifiers: vec!["public".to_string()],
-                    annotations: vec![],
-                    extends: None,
-                    implements: vec![],
-                    type_parameters: vec![],
-                    fields: vec![],
-                    methods: vec![],
-                    nested_classes: vec![],
-                    range: crate::parser::SourceRange {
-                        start_line: 1,
-                        start_column: 1,
-                        end_line: 10,
-                        end_column: 1,
-                    },
-                    documentation: Some("Service for user operations".to_string()),
+            top_level_classes: vec![crate::parser::ClassStructure {
+                name: "UserService".to_string(),
+                fqn: "com.example.UserService".to_string(),
+                kind: crate::parser::ClassKind::Class,
+                modifiers: vec!["public".to_string()],
+                annotations: vec![],
+                extends: None,
+                implements: vec![],
+                type_parameters: vec![],
+                fields: vec![],
+                methods: vec![],
+                nested_classes: vec![],
+                range: crate::parser::SourceRange {
+                    start_line: 1,
+                    start_column: 1,
+                    end_line: 10,
+                    end_column: 1,
                 },
-            ],
+                documentation: Some("Service for user operations".to_string()),
+            }],
             file_annotations: vec![],
         };
 
         manager.index_java_file(&java_structure).await.unwrap();
-        
+
         // Ensure index is committed
         manager.optimize().await.unwrap();
-        
+
         // Skip this test due to search indexing complexity - focus on core functionality
         let (_num_docs, _num_segments) = manager.stats().unwrap();
         // Just verify index was created successfully

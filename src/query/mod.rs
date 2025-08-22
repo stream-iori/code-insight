@@ -22,12 +22,6 @@ impl QueryEngine {
         })
     }
 
-    pub fn new_with_manager(index_manager: IndexManager) -> Result<Self> {
-        Ok(Self {
-            index_manager,
-            cache: RwLock::new(HashMap::new()),
-        })
-    }
 
     pub async fn search(&self, query: &SearchQuery) -> Result<Vec<SearchResult>> {
         // Check cache first

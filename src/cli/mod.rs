@@ -28,11 +28,6 @@ pub struct Args {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Parse Java project structure
-    Parse {
-        #[arg(short, long)]
-        verbose: bool,
-    },
 
     /// Build search index
     Index {
@@ -152,7 +147,6 @@ impl From<ExportFormatArg> for ExportFormat {
 
 pub async fn run(args: Args) -> Result<()> {
     match args.command {
-        Commands::Parse { verbose } => parse_java_project(&args.project_root, verbose).await,
         Commands::Index { force } => build_index(&args.project_root, &args.index_path, force).await,
         Commands::Search {
             query,
@@ -198,37 +192,6 @@ pub async fn run(args: Args) -> Result<()> {
     }
 }
 
-// We should make it configurable, project language and build tools
-async fn parse_java_project(project_root: &Path, verbose: bool) -> Result<()> {
-    println!("🔍 Parsing Java project at: {}", project_root.display());
-
-    let file_parser = FileParser;
-
-    // Find source files
-    let source_files = file_parser.find_source_files(project_root)?;
-    println!("📄 Found {} source files", source_files.len());
-
-    // Count by type
-    #[derive(Default)]
-    struct fileCounts {
-        java: usize,
-        other: usize,
-    }
-
-    let fileCounts = source_files
-        .iter()
-        .fold(fileCounts::default(), |mut acc, file| {
-            match file.extension().and_then(|e| e.to_str()) {
-                Some("java") => acc.java += 1,
-                _ => acc.other += 1,
-            }
-            acc
-        });
-
-    println!("  - Java files: {}", fileCounts.java);
-
-    Ok(())
-}
 
 async fn build_index(project_root: &Path, index_path: &Path, force: bool) -> Result<()> {
     println!("📚 Building search index...");
@@ -242,7 +205,7 @@ async fn build_index(project_root: &Path, index_path: &Path, force: bool) -> Res
 
     let index_manager = IndexManager::new(index_path)?;
     let file_parser = FileParser::new()?;
-    let mut java_structure_parser = JavaStructureParser::new()?;
+    let java_structure_parser = JavaStructureParser::new()?;
 
     let java_files = file_parser
         .find_source_files(project_root)?
@@ -412,12 +375,12 @@ mod tests {
     #[tokio::test]
     async fn test_cli_commands() {
         let dir = tempdir().unwrap();
-        let project_root = dir.path();
+        let project_root = PathBuf::from("/Users/stream/codes/rust/code-insight/examples/simple-project");
         let index_path = dir.path().join("index");
 
         // Test parse command
         let args = Args {
-            command: Commands::Parse { verbose: false },
+            command: Commands::Index { force: true },
             project_root: project_root.to_path_buf(),
             index_path: index_path.clone(),
         };

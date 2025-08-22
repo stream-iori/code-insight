@@ -48,11 +48,6 @@ impl FileParser {
         Ok(Self)
     }
 
-    pub fn parse_java_structure(&self, path: &Path) -> Result<JavaStructurePreview> {
-        let mut parser = JavaStructureParser::new()?;
-        parser.parse_file(path)
-    }
-
     ///find files that java project cared.
     pub fn find_source_files(&self, root: &Path) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
