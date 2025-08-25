@@ -1,5 +1,4 @@
-mod java_structure;
-
+pub mod java_structure;
 pub use java_structure::*;
 
 use anyhow::Result;

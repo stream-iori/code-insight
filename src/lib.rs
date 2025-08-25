@@ -30,3 +30,4 @@ mod type_config;
 
 pub use types::*;
 pub use cli::*;
+pub use parser::*;
